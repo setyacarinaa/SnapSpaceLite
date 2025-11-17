@@ -1,0 +1,16 @@
+{
+  "name": "snapspace-admin-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Utility scripts for administering Firebase for SnapSpace.",
+  "type": "module",
+  "scripts": {
+    "create-admin": "node scripts/create_admin_user.mjs",
+    "import-booths": "node scripts/import_booths_from_json.mjs",
+    "reset-password": "node scripts/reset_user_password.mjs",
+    "set-claim": "node scripts/set_custom_claim.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.5.0"
+  }
+}

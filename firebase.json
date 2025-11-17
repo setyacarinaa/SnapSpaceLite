@@ -1,0 +1,31 @@
+{
+	"flutter": {
+		"platforms": {
+			"android": {
+				"default": {
+					"projectId": "snapspace-lite",
+					"appId": "1:575595351535:android:ae0fa5bcf30f853ed7ba1a",
+					"fileOutput": "android/app/google-services.json"
+				}
+			},
+			"dart": {
+				"lib/firebase_options.dart": {
+					"projectId": "snapspace-lite",
+					"configurations": {
+						"android": "1:575595351535:android:ae0fa5bcf30f853ed7ba1a",
+						"ios": "1:575595351535:ios:1f39d7bfdae54638d7ba1a",
+						"macos": "1:575595351535:ios:1f39d7bfdae54638d7ba1a",
+						"web": "1:575595351535:web:cac71aec921958d2d7ba1a",
+						"windows": "1:575595351535:web:316ba4b229a73edcd7ba1a"
+					}
+				}
+			}
+		}
+	},
+	"storage": {
+		"rules": "storage.rules"
+	},
+	"firestore": {
+		"rules": "firestore.rules"
+	}
+}

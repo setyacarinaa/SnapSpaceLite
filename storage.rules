@@ -1,0 +1,68 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Booth images: public read; write only by admins (system_admin or photobooth_admin)
+    match /booths/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && (request.auth.token.system_admin == true || request.auth.token.photobooth_admin == true);
+    }
+
+    // Booking photos: allow read/write only for booking owner or admins
+    match /bookings/{bookingId}/photos/{fileName} {
+      function isAdmin() {
+        return request.auth != null && (request.auth.token.system_admin == true || request.auth.token.photobooth_admin == true);
+      }
+      // lookup booking document to check owner
+      function bookingOwner() {
+        return get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId;
+      }
+
+      allow read: if request.auth != null && (isAdmin() || request.auth.uid == bookingOwner());
+      allow write: if request.auth != null && (isAdmin() || request.auth.uid == bookingOwner());
+    }
+
+    // User profile files: owner can write, anyone can read
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Aturan foto profil: hanya pemilik akun yang boleh menulis,
+    // dan batasi ke tipe gambar + ukuran maksimum 5MB
+    match /profile_images/{uid}.{ext} {
+      allow read: if isSignedIn();
+      // Naikkan batas ukuran menjadi 10MB dan tetap batasi image/*
+      allow write: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // (Opsional) Jika kamu menyimpan gambar booth di Storage,
+    // izinkan read publik atau hanya user login sesuai kebutuhan.
+    match /booths/{allPaths=**} {
+      allow read: if true; // atau isSignedIn();
+      allow write: if false; // kunci default, sesuaikan jika perlu
+    }
+
+    // Default: tolak akses ke jalur lain
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

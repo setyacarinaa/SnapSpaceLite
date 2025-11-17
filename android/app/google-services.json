@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "575595351535",
+    "project_id": "snapspace-lite",
+    "storage_bucket": "snapspace-lite.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:575595351535:android:ae0fa5bcf30f853ed7ba1a",
+        "android_client_info": {
+          "package_name": "com.example.snapspace"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_YFud7fc7Mwy-HuUd_ZUB9GLXzAKaaSo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
