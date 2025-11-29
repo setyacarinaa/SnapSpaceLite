@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/admin_config.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluttertoast/fluttertoast.dart';
@@ -104,8 +105,213 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+        actions: [
+          IconButton(
+            tooltip: 'Logout',
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () async {
+              final rootNav = Navigator.of(context, rootNavigator: true);
+              try {
+                await FirebaseAuth.instance.signOut();
+              } catch (_) {}
+              if (!mounted) return;
+              try {
+                Fluttertoast.showToast(msg: 'Berhasil logout');
+              } catch (_) {}
+              rootNav.pushNamedAndRemoveUntil('/splash', (route) => false);
+            },
+          ),
+        ],
       ),
-      body: tab.child,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // If the current signed-in user is the special system admin
+            // and they're viewing the dashboard as another role, show
+            // a small banner so the operator knows they're in act-as mode.
+            if (FirebaseAuth.instance.currentUser?.email ==
+                    AdminConfig.systemAdminEmail &&
+                widget.role != 'system_admin')
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 8.0,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.yellow.shade700),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.visibility,
+                        color: Colors.black54,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Anda sedang melihat sebagai "${widget.role}" (act-as mode)',
+                          style: const TextStyle(color: Colors.black87),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (widget.role == 'system_admin' && tab.title != 'Users')
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FutureBuilder<List<int>>(
+                          future: Future.wait<int>([
+                            // approved photobooth
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .where('role', isEqualTo: 'photobooth_admin')
+                                .where('verified', isEqualTo: true)
+                                .get()
+                                .then((q) => q.docs.length),
+                            // pending photobooth
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .where('role', isEqualTo: 'photobooth_admin')
+                                .where('verified', isEqualTo: false)
+                                .get()
+                                .then((q) => q.docs.length),
+                            // customers total
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .where('role', isEqualTo: 'user')
+                                .get()
+                                .then((q) => q.docs.length),
+                          ]),
+                          builder: (context, snap) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+                            final vals = snap.data ?? [0, 0, 0];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _statItem(
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Icon(
+                                              Icons.verified,
+                                              size: 20,
+                                              color: Colors.black54,
+                                            ),
+                                            SizedBox(height: 4),
+                                            Text(
+                                              'Approved',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        vals[0].toString(),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _statItem(
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Icon(
+                                              Icons.pending_actions,
+                                              size: 20,
+                                              color: Colors.black54,
+                                            ),
+                                            SizedBox(height: 4),
+                                            Text(
+                                              'Pending',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        vals[1].toString(),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _statItem(
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Icon(
+                                              Icons.people,
+                                              size: 20,
+                                              color: Colors.black54,
+                                            ),
+                                            SizedBox(height: 4),
+                                            Text(
+                                              'Customers',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        vals[2].toString(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        // Hide the verification link when viewing the Users tab
+                        if (tab.title != 'Users')
+                          Align(
+                            alignment: Alignment.center,
+                            child: TextButton(
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/admin/verify'),
+                              child: const Text('Lihat Verifikasi'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            Expanded(child: tab.child),
+          ],
+        ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index.clamp(0, pages.length - 1),
         selectedItemColor: const Color(0xFF4981CF),
@@ -120,60 +326,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
           return BottomNavigationBarItem(icon: Icon(icon), label: p.title);
         }).toList(),
       ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ListTile(
-                title: const Text(
-                  'SnapSpace Admin',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: const Text('Panel kontrol'),
-              ),
-              const Divider(),
-              if (widget.role == 'system_admin')
-                ListTile(
-                  leading: const Icon(Icons.verified_outlined),
-                  title: const Text('Verifikasi Admin Photobooth'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pushNamed('/admin/verify');
-                  },
-                ),
-              ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text(
-                  'Logout',
-                  style: TextStyle(color: Colors.red),
-                ),
-                onTap: () async {
-                  // Capture navigators synchronously to avoid using
-                  // BuildContext after an await (fixes use_build_context_synchronously lint).
-                  final nav = Navigator.of(context);
-                  final rootNav = Navigator.of(context, rootNavigator: true);
-                  try {
-                    await FirebaseAuth.instance.signOut();
-                  } catch (_) {}
-                  if (!mounted) return;
-                  // Show a small toast to confirm logout (no BuildContext needed)
-                  try {
-                    Fluttertoast.showToast(msg: 'Berhasil logout');
-                  } catch (_) {}
-                  // Close the drawer if it's open, then navigate to splash
-                  try {
-                    nav.pop();
-                  } catch (_) {}
-                  rootNav.pushNamedAndRemoveUntil('/splash', (route) => false);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+      // Drawer removed — actions moved to AppBar (verification + logout)
     );
   }
+}
+
+Widget _statItem(Widget labelWidget, String value) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Text(
+        value,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
+      const SizedBox(height: 4),
+      Center(child: labelWidget),
+    ],
+  );
 }
 
 class _Tab extends StatelessWidget {

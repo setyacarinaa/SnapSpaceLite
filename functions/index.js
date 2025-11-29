@@ -47,7 +47,16 @@ exports.setPhotoboothAdmin = functions.https.onRequest((req, res) => {
       existing.photobooth_admin = true;
       await admin.auth().setCustomUserClaims(targetUser.uid, existing);
 
-      // Update Firestore user doc as well
+      // Update Firestore docs: prefer the new `photobooth_admins` collection
+      // but also keep the legacy `users` doc in sync for compatibility.
+      const adminRef = db.collection('photobooth_admins').doc(targetUser.uid);
+      await adminRef.set({
+        role: 'photobooth_admin',
+        verified: true,
+        verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Update legacy users collection as well (merge) so older codepaths keep working.
       const userRef = db.collection('users').doc(targetUser.uid);
       await userRef.set({
         role: 'photobooth_admin',
@@ -58,6 +67,41 @@ exports.setPhotoboothAdmin = functions.https.onRequest((req, res) => {
       return res.json({ success: true, uid: targetUser.uid });
     } catch (e) {
       console.error('setPhotoboothAdmin error', e);
+      return res.status(500).json({ error: String(e) });
+    }
+  });
+});
+
+// HTTP endpoint to delete a booking document using the Admin SDK.
+// Security: caller must be signed-in and have custom claim `system_admin` or `photobooth_admin`.
+exports.deleteBooking = functions.https.onRequest((req, res) => {
+  cors(req, res, async () => {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Only POST' });
+
+    const authHeader = req.get('Authorization') || '';
+    const match = authHeader.match(/^Bearer\s+(.*)$/i);
+    const idToken = match ? match[1] : (req.body && req.body.idToken) || null;
+    if (!idToken) return res.status(401).json({ error: 'Missing ID token' });
+
+    let caller;
+    try {
+      caller = await admin.auth().verifyIdToken(idToken);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid ID token', detail: String(e) });
+    }
+
+    if (!caller || !(caller.system_admin || caller.photobooth_admin)) {
+      return res.status(403).json({ error: 'Forbidden: requires admin claim' });
+    }
+
+    const { bookingId } = req.body || {};
+    if (!bookingId) return res.status(400).json({ error: 'bookingId required' });
+
+    try {
+      await db.collection('bookings').doc(bookingId).delete();
+      return res.json({ success: true, bookingId });
+    } catch (e) {
+      console.error('deleteBooking error', e);
       return res.status(500).json({ error: String(e) });
     }
   });

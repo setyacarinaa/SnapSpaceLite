@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class AdminVerificationScreen extends StatefulWidget {
   const AdminVerificationScreen({super.key});
@@ -16,16 +16,20 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
   final _col = FirebaseFirestore.instance.collection('users');
 
   String? _currentRole;
+  StreamSubscription<User?>? _authSub;
 
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.authStateChanges().listen((u) async {
+    // Keep the subscription so we can cancel it in dispose and avoid
+    // calling setState after the widget has been removed.
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((u) async {
       if (u == null) return;
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(u.uid)
           .get();
+      if (!mounted) return;
       setState(() => _currentRole = (doc.data()?['role'] as String?));
     });
   }
@@ -62,32 +66,9 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
       const SnackBar(content: Text('Akun diverifikasi (Firestore)')),
     );
 
-    // Offer to call the deployed Cloud Function to set custom claim automatically
-    final shouldCall = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Otomatis set claim?'),
-        content: const Text(
-          'Jalankan Cloud Function untuk memberikan akses admin photobooth secara otomatis? (butuh URL function)',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Tidak'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Ya'),
-          ),
-        ],
-      ),
-    );
-    if (shouldCall ?? false) {
-      final url = await _inputFunctionUrl();
-      if (url != null) {
-        await _callSetClaimFunction(url, doc);
-      }
-    }
+    // Note: This app no longer prompts for a Cloud Function URL. If you
+    // require setting custom claims automatically, run the server-side
+    // function or use the Firebase Console / admin tools.
   }
 
   /// Validate one or more links provided by the user.
@@ -110,6 +91,23 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
             .timeout(const Duration(seconds: 10));
         final ct = head.headers['content-type'] ?? '';
         final cl = int.tryParse(head.headers['content-length'] ?? '') ?? 0;
+
+        // Google Drive folder links (drive.google.com/drive/folders/...) return
+        // an HTML page; treat them as acceptable for verification since the
+        // admin may provide a folder containing KTP/selfie images. Warn the
+        // operator but do not fail validation for HTML Drive pages.
+        final isDriveLink = l.contains('drive.google.com');
+        if (ct.startsWith('text/html') && isDriveLink) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Terima folder Google Drive untuk link: $l'),
+              ),
+            );
+          }
+          // accept and continue to next link
+          continue;
+        }
 
         // Accept images or PDFs up to 8 MB
         final okType = ct.startsWith('image/') || ct.contains('pdf');
@@ -172,85 +170,22 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
     }
   }
 
-  Future<String?> _inputFunctionUrl() async {
-    String input = '';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Function URL'),
-        content: TextField(
-          onChanged: (v) => input = v.trim(),
-          decoration: const InputDecoration(
-            hintText: 'https://us-central1-.../setPhotoboothAdmin',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    if (ok ?? false) return input.isEmpty ? null : input;
-    return null;
-  }
-
-  Future<void> _callSetClaimFunction(String url, DocumentSnapshot doc) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        throw Exception(
-          'Anda harus login sebagai System Admin untuk memanggil function.',
-        );
-      }
-      final idToken = await user.getIdToken();
-      final email = (doc.data() as Map<String, dynamic>)['email'] as String?;
-      final resp = await http
-          .post(
-            Uri.parse(url),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-            },
-            body: jsonEncode({'email': email}),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (!mounted) {
-        return;
-      }
-      final messenger = ScaffoldMessenger.of(context);
-      if (resp.statusCode == 200) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Claim set via Cloud Function')),
-        );
-      } else {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Function error: ${resp.body}')),
-        );
-      }
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(
-        SnackBar(content: Text('Gagal memanggil function: $e')),
-      );
-    }
-  }
+  // Cloud Function HTTP helper removed. Custom claims must be set via
+  // server-side tools (Firebase Console, admin SDK or deployed functions).
 
   Future<void> _reject(DocumentSnapshot doc) async {
-    final id = doc.id;
     // mark rejected so there is a record; operator can delete later if desired
-    await _col.doc(id).update({
-      'role': 'rejected',
+    // Mark as rejected but do NOT set a permanent 'rejected' role that
+    // would blacklist the account. Reset role back to 'user' so the
+    // person can re-register later if they wish. Store rejection metadata
+    // for audit purposes.
+    await doc.reference.update({
+      'rejected': true,
       'rejectedAt': FieldValue.serverTimestamp(),
+      'rejectionNote': 'Rejected by system admin',
+      // Reset role to allow re-registration; keep original role history
+      // in case you want to audit later.
+      'role': 'user',
     });
     if (mounted) {
       final messenger = ScaffoldMessenger.of(context);
@@ -291,14 +226,32 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
+          if (!snap.hasData) {
+            return const Center(child: Text('Tidak ada data.'));
+          }
+
+          // Filter out documents that have been explicitly rejected so they
+          // don't appear in the pending list anymore. Default to not
+          // rejected when the field is absent.
+          final docs = snap.data!.docs.where((d) {
+            final m = d.data() as Map<String, dynamic>;
+            final rejected = m['rejected'] as bool? ?? false;
+            return !rejected;
+          }).toList();
+
+          if (docs.isEmpty) {
             return const Center(
-              child: Text(
-                'Tidak ada akun photobooth yang menunggu verifikasi.',
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 36.0),
+                child: Text(
+                  'Tidak ada akun photobooth yang menunggu verifikasi.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
               ),
             );
           }
-          final docs = snap.data!.docs;
+
           return ListView.separated(
             padding: const EdgeInsets.all(12),
             itemCount: docs.length,
@@ -400,5 +353,11 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
         },
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 }

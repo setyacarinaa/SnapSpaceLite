@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'booking_photo_view_screen.dart';
 import 'edit_booking_screen.dart';
 
@@ -18,9 +19,58 @@ class DetailBookingScreen extends StatefulWidget {
 }
 
 class _DetailBookingScreenState extends State<DetailBookingScreen> {
+  String? _profileName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileName();
+  }
+
+  Future<void> _loadProfileName() async {
+    try {
+      String? name;
+
+      // Try to resolve the booking owner's uid from common fields
+      final uidFromBooking =
+          (widget.bookingData['userId'] ??
+                  widget.bookingData['userUid'] ??
+                  widget.bookingData['uid'])
+              ?.toString();
+
+      if (uidFromBooking != null && uidFromBooking.isNotEmpty) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uidFromBooking)
+            .get();
+        final data = doc.data();
+        name = data?['name'] as String? ?? data?['fullName'] as String?;
+      }
+
+      // Fallback to signed-in user's displayName
+      name ??= FirebaseAuth.instance.currentUser?.displayName;
+
+      // Final fallback to bookingData fields
+      name ??= (widget.bookingData['nama'] ?? widget.bookingData['name'])
+          ?.toString();
+
+      if (!mounted) return;
+      setState(() => _profileName = name ?? '-');
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () => _profileName =
+            (widget.bookingData['nama'] ?? widget.bookingData['name'])
+                ?.toString() ??
+            '-',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final nama = (widget.bookingData['nama'] ?? '-').toString();
+    final nama = (_profileName ?? (widget.bookingData['nama'] ?? '-'))
+        .toString();
     final booth = (widget.bookingData['boothName'] ?? '-').toString();
     final tanggal = (widget.bookingData['tanggal'] ?? '-').toString();
     final status = (widget.bookingData['status'] ?? 'pending')
