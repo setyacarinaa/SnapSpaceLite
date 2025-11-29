@@ -24,6 +24,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+  bool _nameMatchesKtp = false;
 
   Future<void> _register() async {
     if (_passwordController.text != _confirmController.text) {
@@ -33,6 +34,13 @@ class _RegisterPopupState extends State<RegisterPopup> {
 
     if (_nameController.text.trim().isEmpty) {
       Fluttertoast.showToast(msg: "Nama tidak boleh kosong!");
+      return;
+    }
+
+    // For photobooth admins, require confirmation that the provided name
+    // matches the KTP before allowing registration.
+    if (_selectedRole == 'photobooth_admin' && !_nameMatchesKtp) {
+      Fluttertoast.showToast(msg: "Silakan konfirmasi bahwa nama sesuai KTP.");
       return;
     }
 
@@ -303,7 +311,15 @@ class _RegisterPopupState extends State<RegisterPopup> {
                       prefixIcon: const Icon(Icons.person_outline),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Nama harus sesuai isi KTP',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
 
                   // If registering as photobooth admin, collect booth details
                   if (_selectedRole == 'photobooth_admin') ...[
@@ -329,6 +345,18 @@ class _RegisterPopupState extends State<RegisterPopup> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    // Confirmation: make sure name matches KTP before registering
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Saya pastikan nama di atas sesuai KTP',
+                      ),
+                      value: _nameMatchesKtp,
+                      onChanged: (v) =>
+                          setState(() => _nameMatchesKtp = v ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    const SizedBox(height: 8),
                     // Drive link input is collected after user taps Register
                     // to reduce visual clutter. It will be requested via
                     // a dialog when needed.
