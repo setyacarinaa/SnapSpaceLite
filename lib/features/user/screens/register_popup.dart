@@ -198,6 +198,51 @@ class _RegisterPopupState extends State<RegisterPopup> {
     }
   }
 
+  Future<void> _onRegisterPressed() async {
+    // If the user is registering as photobooth_admin and hasn't provided
+    // a Drive link yet, prompt for it after the user presses Register.
+    if (_selectedRole == 'photobooth_admin' &&
+        _driveLinkController.text.trim().isEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Link Drive Foto (KTP & Selfie)'),
+          content: TextField(
+            controller: _driveLinkController,
+            decoration: const InputDecoration(
+              hintText: 'Masukkan link Drive yang bisa diakses',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (_driveLinkController.text.trim().isEmpty) {
+                  Fluttertoast.showToast(
+                    msg: 'Link Drive wajib diisi untuk Admin Photobooth',
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('Kirim'),
+            ),
+          ],
+        ),
+      );
+
+      if (ok != true) {
+        return; // user cancelled
+      }
+    }
+
+    // Proceed with the normal registration flow
+    await _register();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -284,17 +329,9 @@ class _RegisterPopupState extends State<RegisterPopup> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _driveLinkController,
-                      decoration: InputDecoration(
-                        labelText: 'Link Drive Foto (KTP & Selfie)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        prefixIcon: const Icon(Icons.link),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+                    // Drive link input is collected after user taps Register
+                    // to reduce visual clutter. It will be requested via
+                    // a dialog when needed.
                   ],
 
                   // 🔹 Email
@@ -367,7 +404,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blueAccent,
                             ),
-                            onPressed: _register,
+                            onPressed: _onRegisterPressed,
                             child: const Text(
                               "Register",
                               style: TextStyle(color: Colors.white),
