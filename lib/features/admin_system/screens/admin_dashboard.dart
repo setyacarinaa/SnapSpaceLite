@@ -148,14 +148,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   style: TextStyle(color: Colors.red),
                 ),
                 onTap: () async {
-                  await FirebaseAuth.instance.signOut();
+                  try {
+                    await FirebaseAuth.instance.signOut();
+                  } catch (_) {}
                   if (!mounted) return;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                  // Close the drawer if it's open, then navigate to splash
+                  try {
                     Navigator.of(context).pop();
-                    Navigator.of(
-                      context,
-                    ).pushNamedAndRemoveUntil('/splash', (route) => false);
-                  });
+                  } catch (_) {}
+                  // Use the root navigator to ensure we replace the whole stack
+                  Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pushNamedAndRemoveUntil('/splash', (route) => false);
                 },
               ),
             ],
