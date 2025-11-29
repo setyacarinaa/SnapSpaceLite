@@ -42,6 +42,7 @@ flutter:
     - assets/images/facebook.png
     - assets/images/default_avatar.jpg
     - assets/images/default_booth.jpg
+    - assets/data/indonesia_regions.json
 
   fonts:
     - family: Poppins
