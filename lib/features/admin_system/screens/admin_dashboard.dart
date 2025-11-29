@@ -148,19 +148,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   style: TextStyle(color: Colors.red),
                 ),
                 onTap: () async {
+                  // Capture navigators synchronously to avoid using
+                  // BuildContext after an await (fixes use_build_context_synchronously lint).
+                  final nav = Navigator.of(context);
+                  final rootNav = Navigator.of(context, rootNavigator: true);
                   try {
                     await FirebaseAuth.instance.signOut();
                   } catch (_) {}
                   if (!mounted) return;
                   // Close the drawer if it's open, then navigate to splash
                   try {
-                    Navigator.of(context).pop();
+                    nav.pop();
                   } catch (_) {}
-                  // Use the root navigator to ensure we replace the whole stack
-                  Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).pushNamedAndRemoveUntil('/splash', (route) => false);
+                  rootNav.pushNamedAndRemoveUntil('/splash', (route) => false);
                 },
               ),
             ],
