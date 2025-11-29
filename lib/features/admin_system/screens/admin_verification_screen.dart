@@ -32,10 +32,29 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
 
   Future<void> _approve(DocumentSnapshot doc) async {
     final id = doc.id;
+
+    // Before approving, try to validate the submitted KTP/selfie link(s).
+    final data = doc.data() as Map<String, dynamic>?;
+    final driveLink = (data?['driveLink'] as String?) ?? '';
+    if (driveLink.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tidak ada link KTP/Selfie pada akun ini.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final ok = await _validateDriveLinks(driveLink);
+    if (!ok) return;
+
     // Update Firestore immediately so UI reflects the change
     await _col.doc(id).update({
       'verified': true,
       'verifiedAt': FieldValue.serverTimestamp(),
+      'ktp_auto_verified': true,
     });
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -68,6 +87,88 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
       if (url != null) {
         await _callSetClaimFunction(url, doc);
       }
+    }
+  }
+
+  /// Validate one or more links provided by the user.
+  /// Accepts comma or newline separated links. For Google Drive `file/d/ID` or
+  /// `open?id=ID` patterns we build a direct-download URL and perform a HEAD
+  /// request to check Content-Type and size.
+  Future<bool> _validateDriveLinks(String raw) async {
+    final links = raw
+        .split(RegExp(r'[\n,]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (links.isEmpty) return false;
+
+    for (final l in links) {
+      final direct = _driveToDirectUrl(l);
+      try {
+        final head = await http
+            .head(Uri.parse(direct))
+            .timeout(const Duration(seconds: 10));
+        final ct = head.headers['content-type'] ?? '';
+        final cl = int.tryParse(head.headers['content-length'] ?? '') ?? 0;
+
+        // Accept images or PDFs up to 8 MB
+        final okType = ct.startsWith('image/') || ct.contains('pdf');
+        final okSize = cl == 0 || cl <= 8 * 1024 * 1024;
+        if (!okType) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('File tidak valid untuk link: $l (type: $ct)'),
+              ),
+            );
+          }
+          return false;
+        }
+        if (!okSize) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('File terlalu besar untuk link: $l')),
+            );
+          }
+          return false;
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal mengakses file dari link: $l')),
+          );
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Convert common Google Drive share links to a direct-download URL when possible.
+  /// If the link already looks like a direct URL, return it unchanged.
+  String _driveToDirectUrl(String link) {
+    try {
+      final uri = Uri.parse(link);
+      final host = uri.host.toLowerCase();
+      if (host.contains('drive.google.com')) {
+        final p = uri.path;
+        // pattern: /file/d/FILEID/...
+        final match = RegExp(r'/file/d/([A-Za-z0-9_-]+)').firstMatch(p);
+        if (match != null) {
+          final id = match.group(1);
+          return 'https://drive.google.com/uc?export=download&id=$id';
+        }
+        // pattern: /open?id=FILEID
+        final id = uri.queryParameters['id'];
+        if (id != null && id.isNotEmpty) {
+          return 'https://drive.google.com/uc?export=download&id=$id';
+        }
+        // pattern: drive folder or other; return original link (may not be directly downloadable)
+        return link;
+      }
+      return link;
+    } catch (_) {
+      return link;
     }
   }
 

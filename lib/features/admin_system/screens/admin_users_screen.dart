@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -14,14 +15,16 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   String _filter = 'all'; // 'all' | 'customers' | 'studio'
 
   Query<Map<String, dynamic>> _buildQuery() {
-    final base = usersRef.orderBy('created_at', descending: true);
+    // To avoid requiring a Firestore composite index for a where + orderBy
+    // query, we perform a simple where(...) on the server and sort locally.
+    // For the 'all' filter we can use an ordered query server-side.
     if (_filter == 'customers') {
-      return base.where('role', isEqualTo: 'user');
+      return usersRef.where('role', isEqualTo: 'user');
     }
     if (_filter == 'studio') {
-      return base.where('role', isEqualTo: 'photobooth_admin');
+      return usersRef.where('role', isEqualTo: 'photobooth_admin');
     }
-    return base;
+    return usersRef.orderBy('created_at', descending: true);
   }
 
   Widget _buildFilterChip({required String label, required String value}) {
@@ -105,6 +108,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               builder: (context, snap) {
                 if (snap.hasError) {
                   final err = snap.error;
+                  // Try to extract a URL from the error text (Firestore suggests the index URL)
+                  final errText = err?.toString() ?? 'Unknown error';
+                  final urlMatch = RegExp(
+                    r'https?://[^\s]+',
+                  ).firstMatch(errText);
+                  final indexUrl = urlMatch?.group(0);
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -112,7 +121,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         const Text('Error loading users'),
                         const SizedBox(height: 8),
                         Text(
-                          err?.toString() ?? 'Unknown error',
+                          errText,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 12,
@@ -120,9 +129,33 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: () => setState(() {}),
-                          child: const Text('Retry'),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () => setState(() {}),
+                              child: const Text('Retry'),
+                            ),
+                            const SizedBox(width: 12),
+                            if (indexUrl != null) ...[
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.link),
+                                label: const Text('Create Index'),
+                                onPressed: () async {
+                                  try {
+                                    await launchUrlString(
+                                      indexUrl,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                  } catch (_) {
+                                    Fluttertoast.showToast(
+                                      msg: 'Gagal membuka link.',
+                                    );
+                                  }
+                                },
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
@@ -134,7 +167,31 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 if (!snap.hasData) {
                   return const Center(child: Text('No data'));
                 }
-                final docs = snap.data!.docs;
+                var docs = snap.data!.docs;
+                // If we requested a filtered list (customers or studio), Firestore
+                // returned results without ordering. Sort locally by created_at
+                // descending so UI matches expected ordering.
+                if (_filter != 'all') {
+                  docs = List.of(docs);
+                  docs.sort((a, b) {
+                    final da = a.data();
+                    final db = b.data();
+                    final ta = da['created_at'];
+                    final tb = db['created_at'];
+                    // created_at is expected to be a Timestamp from Firestore.
+                    int ma = 0;
+                    int mb = 0;
+                    try {
+                      if (ta is Timestamp) {
+                        ma = ta.toDate().millisecondsSinceEpoch;
+                      }
+                      if (tb is Timestamp) {
+                        mb = tb.toDate().millisecondsSinceEpoch;
+                      }
+                    } catch (_) {}
+                    return mb.compareTo(ma); // descending
+                  });
+                }
                 if (docs.isEmpty) {
                   return const Center(child: Text('No users'));
                 }
