@@ -39,6 +39,37 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     } else if (widget.bookingId != null) {
       _loadBookingData();
     }
+    // Prefill name field from signed-in user's profile when creating a new booking
+    if (widget.existingData == null) {
+      _loadProfileName();
+    }
+  }
+
+  Future<void> _loadProfileName() async {
+    try {
+      // Don't override if existing name already provided (e.g., editing)
+      if (_namaController.text.trim().isNotEmpty) return;
+
+      final user = FirebaseAuth.instance.currentUser;
+      String? name = user?.displayName;
+
+      if ((name == null || name.isEmpty) && user?.uid != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user!.uid)
+            .get();
+        name =
+            doc.data()?['name'] as String? ??
+            doc.data()?['fullName'] as String?;
+      }
+
+      if (!mounted) return;
+      if (name != null && name.isNotEmpty) {
+        setState(() => _namaController.text = name ?? '');
+      }
+    } catch (_) {
+      // ignore and leave controller as-is
+    }
   }
 
   void _fillExistingData(Map<String, dynamic> data) {
@@ -300,7 +331,10 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               : (canEdit
                                     ? 'Simpan Perubahan'
                                     : 'Tidak dapat diedit setelah diproses'),
-                          style: const TextStyle(fontSize: 16),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.white,
+                          ),
                         ),
                 ),
                 const SizedBox(height: 12),

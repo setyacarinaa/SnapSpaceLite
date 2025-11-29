@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -15,16 +16,20 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
   final _col = FirebaseFirestore.instance.collection('users');
 
   String? _currentRole;
+  StreamSubscription<User?>? _authSub;
 
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.authStateChanges().listen((u) async {
+    // Keep the subscription so we can cancel it in dispose and avoid
+    // calling setState after the widget has been removed.
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((u) async {
       if (u == null) return;
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(u.uid)
           .get();
+      if (!mounted) return;
       setState(() => _currentRole = (doc.data()?['role'] as String?));
     });
   }
@@ -236,8 +241,13 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
 
           if (docs.isEmpty) {
             return const Center(
-              child: Text(
-                'Tidak ada akun photobooth yang menunggu verifikasi.',
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 36.0),
+                child: Text(
+                  'Tidak ada akun photobooth yang menunggu verifikasi.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
               ),
             );
           }
@@ -343,5 +353,11 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
         },
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 }

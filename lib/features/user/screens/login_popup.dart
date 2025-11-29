@@ -170,10 +170,19 @@ class _LoginPopupState extends State<LoginPopup> {
       // Routing based on role/login selection or system admin
       final currentEmail = _auth.currentUser?.email?.toLowerCase();
       if (_isSystemAdminEmail(currentEmail)) {
-        // System admin has a dedicated admin_system area that manages
-        // verification and user/account management.
+        // System admin can choose to act as a photobooth admin or as a normal user.
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/admin');
+          if (_loginAs == 'photobooth_admin') {
+            // Open admin dashboard acting as photobooth admin
+            Navigator.pushReplacementNamed(
+              context,
+              '/admin/as',
+              arguments: {'role': 'photobooth_admin'},
+            );
+          } else {
+            // Act as normal user/customer and open main app
+            Navigator.pushReplacementNamed(context, '/main');
+          }
         }
         return;
       }

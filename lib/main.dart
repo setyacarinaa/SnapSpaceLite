@@ -124,6 +124,24 @@ class _SnapSpaceAppState extends State<SnapSpaceApp> {
         '/splash': (context) => const SplashScreen(),
         '/main': (context) => const MainNavigation(),
         '/admin': (context) => const _AdminGate(),
+        // Admin 'act as' route - allows system admin to view dashboards as other roles
+        '/admin/as': (context) {
+          // Gate the act-as route: only the configured system admin email
+          // may open this route. If an unauthorized user somehow navigates
+          // here, show the not-authorized screen.
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+          final role = (args != null && args['role'] is String)
+              ? args['role'] as String
+              : 'system_admin';
+          final user = FirebaseAuth.instance.currentUser;
+          final email = user?.email?.toLowerCase();
+          if (email == AdminConfig.systemAdminEmail.toLowerCase()) {
+            return AdminDashboard(role: role);
+          }
+          return const _NotAuthorizedAdminScreen();
+        },
         '/admin/verify': (context) => const AdminVerificationScreen(),
       },
       onUnknownRoute: (settings) => MaterialPageRoute(

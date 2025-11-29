@@ -30,7 +30,7 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
         final bottomNav =
             kBottomNavigationBarHeight + MediaQuery.of(context).padding.bottom;
         // place FAB just above the bottom navigation bar
-        final fabBottom = bottomNav - 20.0;
+        final fabBottom = bottomNav - 40.0;
         final listBottomPadding = (fabBottom + 80.0).clamp(120.0, 280.0);
 
         return SafeArea(
@@ -108,39 +108,99 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
       final name = (d['name'] ?? 'Tanpa Nama').toString();
       final price = d['price'] ?? 0;
       final image = (d['imageUrl'] ?? d['image'] ?? d['path'] ?? '').toString();
+      final description = (d['description'] ?? '').toString();
 
       return Card(
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 1,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          leading: SizedBox(width: 48, height: 48, child: _thumb(image)),
-          title: Text(
-            name,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          subtitle: Text('Rp $price / jam'),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
             children: [
-              IconButton(
-                onPressed: () => _openEdit(id, d),
-                icon: const Icon(Icons.edit),
-                visualDensity: VisualDensity.compact,
-                splashRadius: 20,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(width: 72, height: 72, child: _thumb(image)),
               ),
-              IconButton(
-                onPressed: () => _delete(id, image),
-                icon: Icon(
-                  Icons.delete,
-                  color: Theme.of(context).colorScheme.error,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Rp ${price.toString()} / jam',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 6),
+                    if (description.isNotEmpty)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.description,
+                            size: 16,
+                            color: Colors.black54,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              description,
+                              style: const TextStyle(color: Colors.black54),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-                visualDensity: VisualDensity.compact,
-                splashRadius: 20,
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (val) async {
+                  if (val == 'edit') {
+                    _openEdit(id, d);
+                  } else if (val == 'delete') {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Konfirmasi Hapus'),
+                        content: const Text(
+                          'Hapus booth ini? Tindakan tidak dapat dibatalkan.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Batal'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text('Hapus'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      await _delete(id, image);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(content: Text('Booth dihapus')),
+                      );
+                    }
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  PopupMenuItem(value: 'delete', child: Text('Hapus')),
+                ],
               ),
             ],
           ),
@@ -150,20 +210,66 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
   );
 
   Widget _thumb(String urlOrPath) {
+    // Return a rectangular thumbnail that falls back to the default booth asset.
     if (urlOrPath.isEmpty) {
-      return const CircleAvatar(child: Icon(Icons.image_not_supported));
+      return Image.asset('assets/images/default_booth.jpg', fit: BoxFit.cover);
     }
     if (urlOrPath.startsWith('http')) {
-      return CircleAvatar(backgroundImage: NetworkImage(urlOrPath));
+      return Image.network(
+        urlOrPath,
+        fit: BoxFit.cover,
+        loadingBuilder: (ctx, child, progress) {
+          if (progress == null) return child;
+          return Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.0,
+                value: progress.expectedTotalBytes != null
+                    ? progress.cumulativeBytesLoaded /
+                          (progress.expectedTotalBytes ?? 1)
+                    : null,
+              ),
+            ),
+          );
+        },
+        errorBuilder: (ctx, err, st) =>
+            Image.asset('assets/images/default_booth.jpg', fit: BoxFit.cover),
+      );
     }
     return FutureBuilder<String>(
       future: _resolveDownloadUrl(urlOrPath),
       builder: (context, s) {
         final u = s.data;
         if (u == null || u.isEmpty) {
-          return const CircleAvatar(child: Icon(Icons.image));
+          return Image.asset(
+            'assets/images/default_booth.jpg',
+            fit: BoxFit.cover,
+          );
         }
-        return CircleAvatar(backgroundImage: NetworkImage(u));
+        return Image.network(
+          u,
+          fit: BoxFit.cover,
+          loadingBuilder: (ctx, child, progress) {
+            if (progress == null) return child;
+            return Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.0,
+                  value: progress.expectedTotalBytes != null
+                      ? progress.cumulativeBytesLoaded /
+                            (progress.expectedTotalBytes ?? 1)
+                      : null,
+                ),
+              ),
+            );
+          },
+          errorBuilder: (ctx, err, st) =>
+              Image.asset('assets/images/default_booth.jpg', fit: BoxFit.cover),
+        );
       },
     );
   }
@@ -278,10 +384,9 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
     for (final s in samples) {
       batch.set(booths.doc(), s);
     }
-    final messenger = ScaffoldMessenger.of(context);
     await batch.commit();
     if (!mounted) return;
-    messenger.showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('3 contoh booth berhasil dibuat.')),
     );
   }

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_storage/firebase_storage.dart';
 
 import '../../../core/admin_config.dart';
 
@@ -161,6 +162,106 @@ String _formatDateForDisplay(dynamic raw) {
   return s;
 }
 
+/// Resolve a path or URL to a usable HTTP download URL.
+Future<String?> _resolveStorageUrlIfNeeded(String? path) async {
+  if (path == null) return null;
+  final p = path.trim();
+  if (p.isEmpty) return null;
+  if (p.startsWith('http')) return p;
+  try {
+    // If path looks like a gs:// or full storage URL, use refFromURL
+    if (p.startsWith('gs://') || p.startsWith('https://')) {
+      final ref = FirebaseStorage.instance.refFromURL(p);
+      return await ref.getDownloadURL();
+    }
+
+    // Otherwise assume it's a storage path under the default bucket
+    final ref = FirebaseStorage.instance.ref(p);
+    return await ref.getDownloadURL();
+  } catch (e) {
+    // ignore errors and return null to fall back to placeholder
+    // ignore: avoid_print
+    print('Failed to resolve storage url for $path: $e');
+    return null;
+  }
+}
+
+// Try multiple possible field names commonly used for booth image
+String _pickImageFieldFromData(Map<String, dynamic> data) {
+  const candidates = <String>[
+    'thumbnail',
+    'cover',
+    'imageUrl',
+    'imageURL',
+    'image',
+    'url',
+    'photoUrl',
+    'path',
+    'storagePath',
+    'image_path',
+  ];
+  for (final key in candidates) {
+    final val = data[key];
+    if (val is String && val.trim().isNotEmpty) return val.trim();
+  }
+  const listCandidates = <String>['images', 'photos', 'gallery'];
+  for (final key in listCandidates) {
+    final val = data[key];
+    if (val is List && val.isNotEmpty) {
+      final first = val.first;
+      if (first is String && first.trim().isNotEmpty) return first.trim();
+    }
+  }
+  return '';
+}
+
+/// Fetch booth image URL by looking up booth document (by id or name)
+Future<String?> _getBoothImageUrl(Map<String, dynamic> booking) async {
+  // 1) if booking explicitly contains an image/path/url, prefer that
+  final bImg =
+      (booking['boothImage'] ?? booking['image'] ?? booking['imageUrl'])
+          as String?;
+  if (bImg != null && bImg.trim().isNotEmpty) {
+    return await _resolveStorageUrlIfNeeded(bImg);
+  }
+
+  // 2) try boothId or boothRef fields
+  final boothId =
+      booking['boothId'] as String? ?? booking['boothRef'] as String?;
+  if (boothId != null && boothId.trim().isNotEmpty) {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('booths')
+          .doc(boothId)
+          .get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final img = _pickImageFieldFromData(data);
+        if (img.isNotEmpty) return await _resolveStorageUrlIfNeeded(img);
+      }
+    } catch (_) {}
+  }
+
+  // 3) fallback: try to find booth by name
+  final boothName = (booking['boothName'] ?? booking['booth'] ?? '').toString();
+  if (boothName.isNotEmpty) {
+    try {
+      final q = await FirebaseFirestore.instance
+          .collection('booths')
+          .where('name', isEqualTo: boothName)
+          .limit(1)
+          .get();
+      if (q.docs.isNotEmpty) {
+        final data = q.docs.first.data();
+        final img = _pickImageFieldFromData(data);
+        if (img.isNotEmpty) return await _resolveStorageUrlIfNeeded(img);
+      }
+    } catch (_) {}
+  }
+
+  return null;
+}
+
 Future<void> _showBookingDialog(
   BuildContext context,
   String id,
@@ -172,9 +273,10 @@ Future<void> _showBookingDialog(
     return v.toString();
   }
 
-  final boothImage = info['boothImage'] as String?;
   final userPhoto =
-      info['userPhoto'] as String? ?? info['userAvatar'] as String?;
+      info['userPhoto'] as String? ??
+      info['userAvatar'] as String? ??
+      FirebaseAuth.instance.currentUser?.photoURL;
   final dateText = info['date'] ?? info['bookingDate'];
 
   await showDialog<void>(
@@ -212,16 +314,62 @@ Future<void> _showBookingDialog(
               const SizedBox(height: 12),
               Row(
                 children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: Colors.grey.shade200,
-                    backgroundImage:
-                        (userPhoto != null && userPhoto.startsWith('http'))
-                        ? NetworkImage(userPhoto)
-                        : null,
-                    child: userPhoto == null
-                        ? const Icon(Icons.person, size: 36, color: Colors.grey)
-                        : null,
+                  // Avatar: support direct URLs or Firebase Storage paths
+                  SizedBox(
+                    width: 72,
+                    height: 72,
+                    child: Builder(
+                      builder: (ctx) {
+                        if (userPhoto == null) {
+                          return CircleAvatar(
+                            radius: 36,
+                            backgroundColor: const Color(0xFFEEEEEE),
+                            backgroundImage: const AssetImage(
+                              'assets/images/default_avatar.jpg',
+                            ),
+                          );
+                        }
+
+                        if (userPhoto.startsWith('http')) {
+                          return CircleAvatar(
+                            radius: 36,
+                            backgroundColor: Colors.grey.shade200,
+                            backgroundImage: NetworkImage(userPhoto),
+                          );
+                        }
+
+                        return FutureBuilder<String?>(
+                          future: _resolveStorageUrlIfNeeded(userPhoto),
+                          builder: (sctx, ssnap) {
+                            if (ssnap.connectionState ==
+                                ConnectionState.waiting) {
+                              return CircleAvatar(
+                                radius: 36,
+                                backgroundColor: const Color(0xFFEEEEEE),
+                                backgroundImage: const AssetImage(
+                                  'assets/images/default_avatar.jpg',
+                                ),
+                              );
+                            }
+                            final resolved = ssnap.data;
+                            if (resolved != null) {
+                              return CircleAvatar(
+                                radius: 36,
+                                backgroundColor: Colors.grey.shade200,
+                                backgroundImage: NetworkImage(resolved),
+                              );
+                            }
+                            return CircleAvatar(
+                              radius: 36,
+                              backgroundColor: const Color(0xFFEEEEEE),
+                              backgroundImage: const AssetImage(
+                                'assets/images/default_avatar.jpg',
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -254,30 +402,69 @@ Future<void> _showBookingDialog(
                 ),
                 child: Row(
                   children: [
-                    if (boothImage != null && boothImage.startsWith('http'))
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          boothImage,
-                          width: 68,
-                          height: 68,
-                          fit: BoxFit.cover,
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 68,
-                        height: 68,
-                        decoration: BoxDecoration(
+                    FutureBuilder<String?>(
+                      future: _getBoothImageUrl(info),
+                      builder: (bctx, bsnap) {
+                        if (bsnap.connectionState == ConnectionState.waiting) {
+                          return Container(
+                            width: 68,
+                            height: 68,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.grey.shade200,
+                            ),
+                          );
+                        }
+                        final url = (bsnap.data ?? '').trim();
+                        if (url.isNotEmpty) {
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              url,
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (ctx, child, progress) {
+                                if (progress == null) return child;
+                                return Container(
+                                  width: 68,
+                                  height: 68,
+                                  alignment: Alignment.center,
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.0,
+                                      value: progress.expectedTotalBytes != null
+                                          ? progress.cumulativeBytesLoaded /
+                                                (progress.expectedTotalBytes ??
+                                                    1)
+                                          : null,
+                                    ),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (ctx, err, st) => Image.asset(
+                                'assets/images/default_booth.jpg',
+                                width: 68,
+                                height: 68,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          );
+                        }
+                        // Fallback: use default booth asset so there's always an image
+                        return ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          color: Colors.grey.shade200,
-                        ),
-                        child: const Icon(
-                          Icons.photo_camera,
-                          size: 32,
-                          color: Colors.grey,
-                        ),
-                      ),
+                          child: Image.asset(
+                            'assets/images/default_booth.jpg',
+                            width: 68,
+                            height: 68,
+                            fit: BoxFit.cover,
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -301,127 +488,45 @@ Future<void> _showBookingDialog(
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.calendar_today,
-                    size: 18,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _formatDateForDisplay(dateText),
-                      style: TextStyle(color: Colors.grey.shade800),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              if (dateText != null) ...[
+                const SizedBox(height: 12),
+                Row(
                   children: [
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4981CF),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () async {
-                        await FirebaseFirestore.instance
-                            .collection('bookings')
-                            .doc(id)
-                            .set({
-                              'status': 'approved',
-                              'updatedAt': FieldValue.serverTimestamp(),
-                            }, SetOptions(merge: true));
-                        if (ctx.mounted) {
-                          Navigator.of(ctx).pop();
-                        }
-                      },
-                      child: const Text(
-                        'Accept',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.grey.shade400),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final ref = FirebaseFirestore.instance
-                            .collection('bookings')
-                            .doc(id);
-                        try {
-                          if (AdminConfig.functionBaseUrl.isNotEmpty) {
-                            final user = FirebaseAuth.instance.currentUser;
-                            final idToken = user == null
-                                ? null
-                                : await user.getIdToken();
-                            final base = AdminConfig.functionBaseUrl.replaceAll(
-                              RegExp(r"/+"),
-                              '',
-                            );
-                            final url = Uri.parse('$base/deleteBooking');
-                            final resp = await http.post(
-                              url,
-                              headers: {
-                                'Content-Type': 'application/json',
-                                if (idToken != null)
-                                  'Authorization': 'Bearer $idToken',
-                              },
-                              body: jsonEncode({'bookingId': id}),
-                            );
-                            if (resp.statusCode != 200) {
-                              throw Exception(
-                                'HTTP ${resp.statusCode}: ${resp.body}',
-                              );
-                            }
-                          } else {
-                            await ref.delete();
-                          }
-                          if (ctx.mounted) {
-                            Navigator.of(ctx).pop();
-                          }
-                          messenger.showSnackBar(
-                            const SnackBar(content: Text('Booking dihapus')),
-                          );
-                        } catch (e, st) {
-                          await ref.set({
-                            'status': 'rejected',
-                            'updatedAt': FieldValue.serverTimestamp(),
-                          }, SetOptions(merge: true));
-                          if (ctx.mounted) {
-                            Navigator.of(ctx).pop();
-                          }
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Gagal menghapus: ${e.toString()} (dokumen diberi status rejected)',
-                              ),
-                            ),
-                          );
-                          // ignore: avoid_print
-                          print('Failed to delete booking $id: $e\n$st');
-                        }
-                      },
+                    Expanded(
                       child: Text(
-                        'Decline',
+                        _formatDateForDisplay(dateText),
                         style: TextStyle(color: Colors.grey.shade800),
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (info['createdAt'] != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.schedule, size: 18, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tanggal Pemesanan: ${_formatDateForDisplay(info['createdAt'])}',
+                        style: TextStyle(
+                          color: const Color.fromARGB(255, 14, 14, 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 18),
+              Center(
+                child: Text(
+                  'menunggu pembayaran langsung di tempat',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color.fromARGB(255, 147, 143, 143),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
