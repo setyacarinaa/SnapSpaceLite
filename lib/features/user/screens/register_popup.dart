@@ -216,74 +216,81 @@ class _RegisterPopupState extends State<RegisterPopup> {
         builder: (ctx) => AlertDialog(
           title: const Text('Link Drive Foto (KTP & Selfie)'),
           content: SizedBox(
-            width: MediaQuery.of(ctx).size.width * 0.8,
+            width: MediaQuery.of(ctx).size.width * 0.86,
             child: TextField(
               controller: _driveLinkController,
               maxLines: 1,
               decoration: InputDecoration(
-                hintText: 'Masukkan link Drive yang bisa diakses',
-                hintStyle: const TextStyle(color: Colors.black54),
+                hintText:
+                    'Masukkan link Drive yang bisa diakses (contoh: https://drive.google.com/...)',
+                hintStyle: const TextStyle(color: Colors.black54, fontSize: 14),
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+                  horizontal: 14,
+                  vertical: 14,
                 ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              style: const TextStyle(color: Colors.black87),
+              style: const TextStyle(color: Colors.black87, fontSize: 14),
             ),
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
           ),
           actionsPadding: const EdgeInsets.symmetric(
             horizontal: 12,
             vertical: 8,
           ),
           actions: [
-            SizedBox(
-              height: 40,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey.shade600,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey.shade700,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Batal'),
+                      ),
+                    ),
                   ),
-                ),
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Batal'),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 40,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(ctx).primaryColor,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(ctx).primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () {
+                          if (_driveLinkController.text.trim().isEmpty) {
+                            Fluttertoast.showToast(
+                              msg:
+                                  'Link Drive wajib diisi untuk Admin Photobooth',
+                            );
+                            return;
+                          }
+                          Navigator.pop(ctx, true);
+                        },
+                        child: const Text('Kirim'),
+                      ),
+                    ),
                   ),
-                ),
-                onPressed: () {
-                  if (_driveLinkController.text.trim().isEmpty) {
-                    Fluttertoast.showToast(
-                      msg: 'Link Drive wajib diisi untuk Admin Photobooth',
-                    );
-                    return;
-                  }
-                  Navigator.pop(ctx, true);
-                },
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('Kirim'),
-                ),
+                ],
               ),
             ),
           ],
