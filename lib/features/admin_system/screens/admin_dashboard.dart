@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:snapspace/features/admin_photobooth/screens/admin_booths_screen.dart';
 import 'package:snapspace/features/admin_photobooth/screens/admin_bookings_screen.dart';
 import 'package:snapspace/features/admin_system/screens/admin_users_screen.dart';
@@ -156,6 +157,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     await FirebaseAuth.instance.signOut();
                   } catch (_) {}
                   if (!mounted) return;
+                  // Show a small toast to confirm logout (no BuildContext needed)
+                  try {
+                    Fluttertoast.showToast(msg: 'Berhasil logout');
+                  } catch (_) {}
                   // Close the drawer if it's open, then navigate to splash
                   try {
                     nav.pop();
