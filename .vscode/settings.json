@@ -1,0 +1,4 @@
+{
+  // Disable automatic JSON schema downloads to avoid ECONNRESET diagnostics
+  "json.schemaDownload.enable": false
+}

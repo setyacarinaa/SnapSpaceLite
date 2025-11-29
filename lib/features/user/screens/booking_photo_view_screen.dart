@@ -129,6 +129,7 @@ class FullPhotoViewScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
+        // No additional actions here; keep AppBar minimal and transparent.
       ),
       body: Center(
         child: InteractiveViewer(

@@ -26,6 +26,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? photoUrl;
   File? _imageFile;
   XFile? _pickedXFile;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userSub;
 
   @override
   void initState() {
@@ -33,6 +34,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
     nameController = TextEditingController();
     emailController = TextEditingController();
     _loadUserData();
+    if (user != null) {
+      _userSub = firestore
+          .collection('users')
+          .doc(user!.uid)
+          .snapshots()
+          .listen((docSnap) {
+            if (!mounted) return;
+            // Jangan ganggu ketika user sedang mengedit form
+            if (isEditing) return;
+            final data = docSnap.data();
+            setState(() {
+              nameController.text =
+                  (data?['name'] as String?) ?? user!.displayName ?? '';
+              emailController.text =
+                  (data?['email'] as String?) ?? user!.email ?? '';
+              photoUrl = (data?['photoUrl'] as String?) ?? user!.photoURL;
+            });
+          });
+    }
+  }
+
+  @override
+  void dispose() {
+    _userSub?.cancel();
+    nameController.dispose();
+    emailController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
@@ -40,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final doc = await firestore.collection('users').doc(user!.uid).get();
     final data = doc.data();
-
+    if (!mounted) return;
     if (data != null) {
       setState(() {
         nameController.text =
@@ -48,15 +76,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         emailController.text = (data['email'] as String?) ?? user!.email ?? '';
         photoUrl = (data['photoUrl'] as String?) ?? user!.photoURL;
       });
-    } else {
-      // Jika dokumen belum ada, tampilkan fallback dari FirebaseAuth agar tidak kosong
-      setState(() {
-        nameController.text =
-            user!.displayName ?? (user!.email?.split('@').first ?? '');
-        emailController.text = user!.email ?? '';
-        photoUrl = user!.photoURL;
-      });
+      return;
     }
+
+    // Jika dokumen belum ada, tampilkan fallback dari FirebaseAuth agar tidak kosong
+    setState(() {
+      nameController.text =
+          user!.displayName ?? (user!.email?.split('@').first ?? '');
+      emailController.text = user!.email ?? '';
+      photoUrl = user!.photoURL;
+    });
   }
 
   Future<void> _pickImageFromSource(ImageSource source) async {
@@ -157,7 +186,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       // Tampilkan alasan error supaya mudah didiagnosa (rules/bucket/konfigurasi)
-      print("Upload failed: $e");
+      // Use debugPrint instead of print to satisfy analyzer and be production-friendly
+      // ignore: avoid_print
+      debugPrint("Upload failed: $e");
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -169,7 +200,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _saveProfile() async {
     try {
-      if (mounted) setState(() => _isSaving = true);
+      if (mounted) {
+        setState(() => _isSaving = true);
+      }
       // Ambil data saat ini untuk fallback agar tidak menimpa dengan string kosong
       final currentSnap = await firestore
           .collection('users')
@@ -228,16 +261,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .timeout(const Duration(seconds: 10));
       }
 
-      setState(() {
-        photoUrl = newPhotoUrl;
-        isEditing = false;
-        _imageFile = null;
-        _pickedXFile = null;
-      });
+      if (mounted) {
+        setState(() {
+          photoUrl = newPhotoUrl;
+          isEditing = false;
+          _imageFile = null;
+          _pickedXFile = null;
+        });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Profile updated successfully")),
-      );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Profile updated successfully")),
+        );
+      }
     } on TimeoutException catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -247,19 +282,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (e) {
-      print("Error updating profile: $e");
+      // avoid print(); use debugPrint for diagnostics
+      // ignore: avoid_print
+      debugPrint("Error updating profile: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Gagal memperbarui profil.')),
         );
       }
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const OpeningScreen()),
@@ -306,106 +346,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _changeEmail() async {
+  Future<void> _resetPassword() async {
     if (user == null) return;
 
-    final newEmailController = TextEditingController(text: user!.email ?? '');
-    final passwordController = TextEditingController();
-    bool obscure = true;
-
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSt) => AlertDialog(
-            title: const Text('Ubah Email'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: newEmailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email baru'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passwordController,
-                  obscureText: obscure,
-                  decoration: InputDecoration(
-                    labelText: 'Password saat ini',
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        obscure ? Icons.visibility_off : Icons.visibility,
-                      ),
-                      onPressed: () => setSt(() => obscure = !obscure),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Batal'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Simpan'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (proceed != true) return;
-
-    final newEmail = newEmailController.text.trim();
-    final password = passwordController.text.trim();
-    if (newEmail.isEmpty || password.isEmpty) {
+    final targetEmail = (user!.email ?? emailController.text).trim();
+    if (targetEmail.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email dan password wajib diisi.')),
+        const SnackBar(
+          content: Text('Email tidak tersedia untuk melakukan reset.'),
+        ),
       );
       return;
     }
 
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset Password'),
+        content: Text('Kirim tautan reset password ke $targetEmail?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Kirim'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     try {
       setState(() => _isSaving = true);
-      final credential = EmailAuthProvider.credential(
-        email: user!.email!,
-        password: password,
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: targetEmail);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tautan reset telah dikirim ke $targetEmail')),
       );
-      await user!.reauthenticateWithCredential(credential);
-      await user!.updateEmail(newEmail);
-
-      await firestore.collection('users').doc(user!.uid).set({
-        'email': newEmail,
-        'updated_at': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      setState(() {
-        emailController.text = newEmail;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email berhasil diperbarui.')),
-        );
-      }
     } on FirebaseAuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? 'Gagal mengubah email.')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Gagal mengirim tautan reset.')),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Gagal mengubah email: $e')));
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal mengirim tautan reset: $e')),
+      );
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
@@ -483,9 +477,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _isSaving ? null : _changeEmail,
-                        icon: const Icon(Icons.alternate_email),
-                        label: const Text('Ubah Email'),
+                        onPressed: _isSaving ? null : _resetPassword,
+                        icon: const Icon(Icons.lock_reset),
+                        label: const Text('Reset Password'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -531,6 +525,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         isEditing ? 'Save' : 'Edit',
                         style: const TextStyle(
                           fontSize: 16,
+                          color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

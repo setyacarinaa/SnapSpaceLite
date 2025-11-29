@@ -15,6 +15,21 @@ class AdminVerificationScreen extends StatefulWidget {
 class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
   final _col = FirebaseFirestore.instance.collection('users');
 
+  String? _currentRole;
+
+  @override
+  void initState() {
+    super.initState();
+    FirebaseAuth.instance.authStateChanges().listen((u) async {
+      if (u == null) return;
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(u.uid)
+          .get();
+      setState(() => _currentRole = (doc.data()?['role'] as String?));
+    });
+  }
+
   Future<void> _approve(DocumentSnapshot doc) async {
     final id = doc.id;
     // Update Firestore immediately so UI reflects the change
@@ -22,10 +37,11 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
       'verified': true,
       'verifiedAt': FieldValue.serverTimestamp(),
     });
-    if (mounted)
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Akun diverifikasi (Firestore)')),
-      );
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Akun diverifikasi (Firestore)')),
+    );
 
     // Offer to call the deployed Cloud Function to set custom claim automatically
     final shouldCall = await showDialog<bool>(
@@ -86,10 +102,11 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
   Future<void> _callSetClaimFunction(String url, DocumentSnapshot doc) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null)
+      if (user == null) {
         throw Exception(
           'Anda harus login sebagai System Admin untuk memanggil function.',
         );
+      }
       final idToken = await user.getIdToken();
       final email = (doc.data() as Map<String, dynamic>)['email'] as String?;
       final resp = await http
@@ -103,22 +120,27 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
+      if (!mounted) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
       if (resp.statusCode == 200) {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Claim set via Cloud Function')),
-          );
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Claim set via Cloud Function')),
+        );
       } else {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Function error: ${resp.body}')),
-          );
+        messenger.showSnackBar(
+          SnackBar(content: Text('Function error: ${resp.body}')),
+        );
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Gagal memanggil function: $e')));
+      if (!mounted) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Gagal memanggil function: $e')),
+      );
     }
   }
 
@@ -129,14 +151,31 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
       'role': 'rejected',
       'rejectedAt': FieldValue.serverTimestamp(),
     });
-    if (mounted)
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Akun ditandai rejected')));
+    if (mounted) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Akun ditandai rejected')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Only allow access to system_admin
+    if (_currentRole != null && _currentRole != 'system_admin') {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Verifikasi Admin Photobooth'),
+          backgroundColor: const Color(0xFF4981CF),
+        ),
+        body: const Center(
+          child: Text(
+            'Akses ditolak. Hanya System Admin yang dapat mengakses halaman ini.',
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Verifikasi Admin Photobooth'),
@@ -148,14 +187,16 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
             .where('verified', isEqualTo: false)
             .snapshots(),
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting)
+          if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
-          if (!snap.hasData || snap.data!.docs.isEmpty)
+          }
+          if (!snap.hasData || snap.data!.docs.isEmpty) {
             return const Center(
               child: Text(
                 'Tidak ada akun photobooth yang menunggu verifikasi.',
               ),
             );
+          }
           final docs = snap.data!.docs;
           return ListView.separated(
             padding: const EdgeInsets.all(12),
@@ -209,7 +250,9 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                                   ],
                                 ),
                               );
-                              if (ok ?? false) await _approve(d);
+                              if (ok ?? false) {
+                                await _approve(d);
+                              }
                             },
                             icon: const Icon(Icons.check),
                             label: const Text('Approve'),
@@ -238,7 +281,9 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                                   ],
                                 ),
                               );
-                              if (ok ?? false) await _reject(d);
+                              if (ok ?? false) {
+                                await _reject(d);
+                              }
                             },
                             icon: const Icon(Icons.close),
                             label: const Text('Reject'),

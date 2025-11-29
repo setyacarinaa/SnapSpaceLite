@@ -33,15 +33,6 @@ class _OpeningScreenState extends State<OpeningScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image(image: AssetImage('assets/images/logo.png'), width: 120),
-            SizedBox(height: 20),
-            Text(
-              'SnapSpace Lite',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF4981CF),
-              ),
-            ),
             SizedBox(height: 10),
             Text(
               'GOOD BYE..',

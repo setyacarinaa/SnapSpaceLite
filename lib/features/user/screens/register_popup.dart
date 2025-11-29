@@ -3,6 +3,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'login_popup.dart';
+import 'waiting_verification.dart';
 
 class RegisterPopup extends StatefulWidget {
   const RegisterPopup({super.key});
@@ -13,6 +14,9 @@ class RegisterPopup extends StatefulWidget {
 
 class _RegisterPopupState extends State<RegisterPopup> {
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _boothNameController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _driveLinkController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmController = TextEditingController();
@@ -29,6 +33,16 @@ class _RegisterPopupState extends State<RegisterPopup> {
 
     if (_nameController.text.trim().isEmpty) {
       Fluttertoast.showToast(msg: "Nama tidak boleh kosong!");
+      return;
+    }
+
+    // If registering as photobooth admin, require KTP & selfie drive link
+    if (_selectedRole == 'photobooth_admin' &&
+        _driveLinkController.text.trim().isEmpty) {
+      Fluttertoast.showToast(
+        msg:
+            "Link foto KTP & selfie wajib diisi untuk pendaftaran Admin Photobooth.",
+      );
       return;
     }
 
@@ -61,9 +75,12 @@ class _RegisterPopupState extends State<RegisterPopup> {
         'created_at': FieldValue.serverTimestamp(),
       };
 
-      // photobooth admins need verification by system admin
+      // Photobooth-specific fields
       if (roleValue == 'photobooth_admin') {
         userDoc['verified'] = false;
+        userDoc['boothName'] = _boothNameController.text.trim();
+        userDoc['location'] = _locationController.text.trim();
+        userDoc['driveLink'] = _driveLinkController.text.trim();
       }
 
       await FirebaseFirestore.instance
@@ -71,31 +88,113 @@ class _RegisterPopupState extends State<RegisterPopup> {
           .doc(user.uid)
           .set(userDoc);
 
-      // 🔹 Update display name di Firebase Auth
+      // Update display name in Firebase Auth
       await user.updateDisplayName(_nameController.text.trim());
 
-      // 🔹 Beri notifikasi sukses
-      Fluttertoast.showToast(
-        msg: "Registrasi berhasil! Silakan login.",
-        toastLength: Toast.LENGTH_LONG,
-        gravity: ToastGravity.BOTTOM,
-      );
-
-      // 🔹 Tunggu sejenak biar proses Firestore selesai & navigasi smooth
-      if (context.mounted) {
-        await Future.delayed(const Duration(seconds: 1));
+      // Navigate: photobooth admins go to waiting screen, others go to login
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      if (roleValue == 'photobooth_admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => WaitingForVerificationScreen()),
+        );
+      } else {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const LoginPopup()),
         );
       }
     } on FirebaseAuthException catch (e) {
+      // If the email is already in use, try to sign in with the provided
+      // password. If sign-in succeeds, the user proves ownership and we can
+      // delete that auth account and recreate a fresh one (so re-registration
+      // succeeds). If sign-in fails, silently send a password-reset email and
+      // redirect to login.
+      if (e.code == 'email-already-in-use') {
+        final email = _emailController.text.trim();
+        final providedPassword = _passwordController.text.trim();
+        try {
+          // Try signing in with provided password to prove ownership
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: providedPassword,
+          );
+
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser != null) {
+            // delete the existing auth user (user just proved ownership)
+            await currentUser.delete();
+          }
+
+          // Now try creating the account again
+          UserCredential newCred = await FirebaseAuth.instance
+              .createUserWithEmailAndPassword(
+                email: email,
+                password: providedPassword,
+              );
+
+          final newUser = newCred.user;
+          if (newUser != null) {
+            final roleValue = _selectedRole == 'photobooth_admin'
+                ? 'photobooth_admin'
+                : 'user';
+            final userDoc = {
+              'uid': newUser.uid,
+              'name': _nameController.text.trim(),
+              'email': email,
+              'photoUrl': '',
+              'role': roleValue,
+              'created_at': FieldValue.serverTimestamp(),
+            };
+            if (roleValue == 'photobooth_admin') userDoc['verified'] = false;
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(newUser.uid)
+                .set(userDoc);
+            await newUser.updateDisplayName(_nameController.text.trim());
+          }
+
+          if (!mounted) return;
+          final nav = Navigator.of(context);
+          nav.pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPopup()),
+          );
+          return;
+        } catch (signErr) {
+          // Could not sign in with provided password (user forgot password)
+          // or deletion/creation failed. Fall back to sending password reset
+          // silently and redirect to login.
+          try {
+            await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+          } catch (_) {
+            // ignore
+          }
+          if (!mounted) return;
+          final nav = Navigator.of(context);
+          nav.pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPopup()),
+          );
+          return;
+        }
+      }
+
       Fluttertoast.showToast(
         msg: e.message ?? "Terjadi kesalahan saat registrasi.",
         toastLength: Toast.LENGTH_LONG,
       );
+    } catch (e, st) {
+      // Log unexpected errors to debug output (avoid using plain print)
+      // Keep silent in the UI per requirement.
+      // Use debugPrint which is more analyzer-friendly.
+      // ignore: avoid_print
+      debugPrint('Register error: $e');
+      // ignore: avoid_print
+      debugPrint(st.toString());
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -160,6 +259,43 @@ class _RegisterPopupState extends State<RegisterPopup> {
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  // If registering as photobooth admin, collect booth details
+                  if (_selectedRole == 'photobooth_admin') ...[
+                    TextField(
+                      controller: _boothNameController,
+                      decoration: InputDecoration(
+                        labelText: 'Nama Photobooth',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        prefixIcon: const Icon(Icons.storefront),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _locationController,
+                      decoration: InputDecoration(
+                        labelText: 'Lokasi',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        prefixIcon: const Icon(Icons.location_on_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _driveLinkController,
+                      decoration: InputDecoration(
+                        labelText: 'Link Drive Foto (KTP & Selfie)',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        prefixIcon: const Icon(Icons.link),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
 
                   // 🔹 Email
                   TextField(

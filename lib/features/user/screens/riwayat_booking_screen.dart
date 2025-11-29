@@ -104,7 +104,7 @@ class RiwayatBookingScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.grey.withOpacity(0.2),
+                              color: Colors.grey.withAlpha(51),
                               blurRadius: 5,
                               offset: const Offset(0, 3),
                             ),
@@ -118,7 +118,7 @@ class RiwayatBookingScreen extends StatelessWidget {
                           leading: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF4981CF).withOpacity(0.1),
+                              color: const Color(0xFF4981CF).withAlpha(26),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(
@@ -143,7 +143,7 @@ class RiwayatBookingScreen extends StatelessWidget {
                               vertical: 5,
                             ),
                             decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
+                              color: statusColor.withAlpha(26),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(

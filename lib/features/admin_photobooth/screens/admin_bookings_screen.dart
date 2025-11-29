@@ -16,8 +16,9 @@ class AdminBookingsScreen extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty)
+        if (docs.isEmpty) {
           return const Center(child: Text('Belum ada booking.'));
+        }
         return ListView.separated(
           padding: const EdgeInsets.all(12),
           itemCount: docs.length,

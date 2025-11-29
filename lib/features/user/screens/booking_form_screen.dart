@@ -10,11 +10,11 @@ class BookingFormScreen extends StatefulWidget {
   final Map<String, dynamic>? existingData;
 
   const BookingFormScreen({
-    Key? key,
+    super.key,
     required this.boothName,
     this.bookingId,
     this.existingData,
-  }) : super(key: key);
+  });
 
   @override
   State<BookingFormScreen> createState() => _BookingFormScreenState();
@@ -98,8 +98,9 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   Future<void> _saveBooking() async {
     if (!_formKey.currentState!.validate() ||
         _selectedDate == null ||
-        _selectedTime == null)
+        _selectedTime == null) {
       return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -150,8 +151,8 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
+      final nav = Navigator.of(context);
+      nav.pushReplacement(
         MaterialPageRoute(builder: (_) => const BookingSuccessScreen()),
       );
     } catch (e) {
@@ -161,7 +162,9 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
         ).showSnackBar(SnackBar(content: Text('Gagal menyimpan data: $e')));
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -236,7 +239,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withAlpha(13),
                   blurRadius: 8,
                   offset: const Offset(2, 3),
                 ),
@@ -314,15 +317,25 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   }
 }
 
-class BookingSuccessScreen extends StatelessWidget {
+class BookingSuccessScreen extends StatefulWidget {
   const BookingSuccessScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<BookingSuccessScreen> createState() => _BookingSuccessScreenState();
+}
+
+class _BookingSuccessScreenState extends State<BookingSuccessScreen> {
+  @override
+  void initState() {
+    super.initState();
     Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
       if (Navigator.canPop(context)) Navigator.pop(context);
     });
+  }
 
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
         width: double.infinity,
