@@ -25,6 +25,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _nameMatchesKtp = false;
+  FocusNode? _driveFocusNode;
 
   Future<void> _register() async {
     if (_passwordController.text != _confirmController.text) {
@@ -73,7 +74,11 @@ class _RegisterPopupState extends State<RegisterPopup> {
       // 🔹 Simpan data user ke Firestore
       final roleValue = _selectedRole == 'photobooth_admin'
           ? 'photobooth_admin'
-          : 'user';
+          : 'customer';
+
+      // Save into separate collections depending on role:
+      // - customers: regular users/customers
+      // - photobooth_admins: photobooth admin applicants (requires verification)
       final userDoc = {
         'uid': user.uid,
         'name': _nameController.text.trim(),
@@ -83,7 +88,6 @@ class _RegisterPopupState extends State<RegisterPopup> {
         'created_at': FieldValue.serverTimestamp(),
       };
 
-      // Photobooth-specific fields
       if (roleValue == 'photobooth_admin') {
         userDoc['verified'] = false;
         userDoc['boothName'] = _boothNameController.text.trim();
@@ -91,8 +95,11 @@ class _RegisterPopupState extends State<RegisterPopup> {
         userDoc['driveLink'] = _driveLinkController.text.trim();
       }
 
+      final collectionName = roleValue == 'photobooth_admin'
+          ? 'photobooth_admins'
+          : 'customers';
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection(collectionName)
           .doc(user.uid)
           .set(userDoc);
 
@@ -105,7 +112,11 @@ class _RegisterPopupState extends State<RegisterPopup> {
       if (roleValue == 'photobooth_admin') {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => WaitingForVerificationScreen()),
+          MaterialPageRoute(
+            builder: (_) => WaitingForVerificationScreen(
+              collectionName: 'photobooth_admins',
+            ),
+          ),
         );
       } else {
         Navigator.pushReplacement(
@@ -206,6 +217,16 @@ class _RegisterPopupState extends State<RegisterPopup> {
     }
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _driveFocusNode = FocusNode()
+      ..addListener(() {
+        // Rebuild so hintStyle can react to focus changes.
+        if (mounted) setState(() {});
+      });
+  }
+
   Future<void> _onRegisterPressed() async {
     // If the user is registering as photobooth_admin and hasn't provided
     // a Drive link yet, prompt for it after the user presses Register.
@@ -218,12 +239,17 @@ class _RegisterPopupState extends State<RegisterPopup> {
           content: SizedBox(
             width: MediaQuery.of(ctx).size.width * 0.86,
             child: TextField(
+              focusNode: _driveFocusNode,
+              autofocus: true,
               controller: _driveLinkController,
               maxLines: 1,
               decoration: InputDecoration(
                 hintText:
                     'Masukkan link Drive yang bisa diakses (contoh: https://drive.google.com/...)',
-                hintStyle: const TextStyle(color: Colors.black54, fontSize: 14),
+                hintStyle: TextStyle(
+                  color: Colors.black54,
+                  fontSize: (_driveFocusNode?.hasFocus ?? false) ? 12 : 14,
+                ),
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -304,6 +330,19 @@ class _RegisterPopupState extends State<RegisterPopup> {
 
     // Proceed with the normal registration flow
     await _register();
+  }
+
+  @override
+  void dispose() {
+    _driveFocusNode?.dispose();
+    _nameController.dispose();
+    _boothNameController.dispose();
+    _locationController.dispose();
+    _driveLinkController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
   }
 
   @override
