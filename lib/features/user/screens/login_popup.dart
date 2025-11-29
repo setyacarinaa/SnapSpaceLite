@@ -5,6 +5,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'register_popup.dart';
 import 'forgot_password_popup.dart';
 import 'waiting_verification.dart';
+import '../../../core/admin_config.dart';
 
 class LoginPopup extends StatefulWidget {
   const LoginPopup({super.key});
@@ -22,13 +23,10 @@ class _LoginPopupState extends State<LoginPopup> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // removed legacy admin email checker; using system admin constants instead
-  // System admin credentials (only one account)
-  static const _systemAdminEmail = 'adminsnapspacelite29@gmail.com';
-  static const _systemAdminPassword = 'adminku290925';
-
+  // Use centralized admin config for bootstrapping credentials.
   bool _isSystemAdminEmail(String? email) =>
-      (email ?? '').toLowerCase().trim() == _systemAdminEmail;
+      (email ?? '').toLowerCase().trim() ==
+      AdminConfig.systemAdminEmail.toLowerCase().trim();
 
   Future<void> _loginUser() async {
     setState(() => _isLoading = true);
@@ -49,11 +47,11 @@ class _LoginPopupState extends State<LoginPopup> {
           if (e.code == 'user-not-found') {
             // Bootstrapping: if the user entered the known system admin secret,
             // create the account locally so they can proceed.
-            if (password == _systemAdminPassword) {
+            if (password == AdminConfig.systemAdminPassword) {
               try {
                 await _auth.createUserWithEmailAndPassword(
                   email: email,
-                  password: _systemAdminPassword,
+                  password: AdminConfig.systemAdminPassword,
                 );
               } on FirebaseAuthException catch (createErr) {
                 Fluttertoast.showToast(
@@ -172,15 +170,10 @@ class _LoginPopupState extends State<LoginPopup> {
       // Routing based on role/login selection or system admin
       final currentEmail = _auth.currentUser?.email?.toLowerCase();
       if (_isSystemAdminEmail(currentEmail)) {
-        // Allow the system admin to choose the landing area.
-        if (_loginAs == 'photobooth_admin') {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/admin');
-          }
-        } else {
-          if (mounted) {
-            Navigator.pushReplacementNamed(context, '/main');
-          }
+        // System admin has a dedicated admin_system area that manages
+        // verification and user/account management.
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/admin');
         }
         return;
       }

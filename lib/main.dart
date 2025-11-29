@@ -8,6 +8,7 @@ import 'features/user/screens/splash_screen.dart';
 import 'core/theme/app_theme.dart';
 import 'features/user/screens/main_navigation.dart';
 import 'features/admin_system/screens/admin_dashboard.dart';
+import 'core/admin_config.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'features/admin_system/screens/admin_verification_screen.dart';
 
@@ -150,21 +151,40 @@ class _AdminGate extends StatelessWidget {
         final user = authSnap.data;
         if (user == null) return const _NotAuthorizedAdminScreen();
 
-        // Fetch user role from Firestore
-        return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .get(),
-          builder: (context, userSnap) {
-            if (userSnap.connectionState == ConnectionState.waiting) {
+        // Fetch user role from Firestore. Check both `users/{uid}` and the
+        // new `photobooth_admins/{uid}` collection so role detection works
+        // during/after migration.
+        return FutureBuilder<List<DocumentSnapshot>>(
+          future: Future.wait([
+            FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+            FirebaseFirestore.instance
+                .collection('photobooth_admins')
+                .doc(user.uid)
+                .get(),
+          ]),
+          builder: (context, snaps) {
+            if (snaps.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
               );
             }
-            final doc = userSnap.data;
-            final data = doc?.data() as Map<String, dynamic>?;
-            final role = data?['role'] as String?;
+            final userDoc = snaps.data != null && snaps.data!.isNotEmpty
+                ? snaps.data![0]
+                : null;
+            final photodoc = snaps.data != null && snaps.data!.length > 1
+                ? snaps.data![1]
+                : null;
+
+            String? role;
+            if (photodoc != null && photodoc.exists) {
+              role =
+                  (photodoc.data() as Map<String, dynamic>?)?['role']
+                      as String?;
+            }
+            if (role == null && userDoc != null && userDoc.exists) {
+              role =
+                  (userDoc.data() as Map<String, dynamic>?)?['role'] as String?;
+            }
 
             if (role == 'system_admin') {
               return const AdminDashboard(role: 'system_admin');
@@ -213,9 +233,9 @@ class _NotAuthorizedAdminScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const Text('Hanya akun berikut yang dapat mengakses:'),
             const SizedBox(height: 8),
-            const SelectableText(
-              'Email: adminsnapspacelite29@gmail.com',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            SelectableText(
+              'Email: ${AdminConfig.systemAdminEmail}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 24),
             Row(

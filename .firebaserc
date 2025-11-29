@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "snapspace-lite"
-  }
+    "default": "snapspace-lite",
+    "nly firestore:indexes": "apk-pmr-29"
+  },
+  "targets": {},
+  "etags": {}
 }

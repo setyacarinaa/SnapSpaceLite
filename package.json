@@ -11,6 +11,6 @@
     "set-claim": "node scripts/set_custom_claim.mjs"
   },
   "dependencies": {
-    "firebase-admin": "^12.5.0"
+    "firebase-admin": "^12.7.0"
   }
 }

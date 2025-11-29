@@ -6,8 +6,10 @@ import 'login_popup.dart';
 
 class WaitingForVerificationScreen extends StatefulWidget {
   final String collectionName;
-  const WaitingForVerificationScreen({Key? key, this.collectionName = 'users'})
-    : super(key: key);
+  const WaitingForVerificationScreen({
+    super.key,
+    this.collectionName = 'users',
+  });
 
   @override
   State<WaitingForVerificationScreen> createState() =>
