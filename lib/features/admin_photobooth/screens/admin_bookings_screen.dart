@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../core/admin_config.dart';
@@ -139,8 +140,25 @@ String _normalizeStatus(String s) {
   return v;
 }
 
-String _formatDateForDisplay(String raw) {
-  return raw;
+String _formatDateForDisplay(dynamic raw) {
+  if (raw == null) return '-';
+
+  if (raw is Timestamp) {
+    final dt = raw.toDate().toLocal();
+    return DateFormat('d MMMM yyyy, HH:mm', 'id').format(dt);
+  }
+
+  if (raw is DateTime) {
+    return DateFormat('d MMMM yyyy, HH:mm', 'id').format(raw.toLocal());
+  }
+
+  final s = raw.toString();
+  final parsed = DateTime.tryParse(s);
+  if (parsed != null) {
+    return DateFormat('d MMMM yyyy, HH:mm', 'id').format(parsed.toLocal());
+  }
+
+  return s;
 }
 
 Future<void> _showBookingDialog(
@@ -157,7 +175,7 @@ Future<void> _showBookingDialog(
   final boothImage = info['boothImage'] as String?;
   final userPhoto =
       info['userPhoto'] as String? ?? info['userAvatar'] as String?;
-  final dateText = fmt(info['date'] ?? info['bookingDate'] ?? '-');
+  final dateText = info['date'] ?? info['bookingDate'];
 
   await showDialog<void>(
     context: context,
