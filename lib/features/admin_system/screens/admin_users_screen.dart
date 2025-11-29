@@ -47,7 +47,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         ),
       ),
       elevation: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
     );
   }
 
@@ -78,7 +78,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   const SizedBox(height: 8),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.only(right: 12),
+                    padding: const EdgeInsets.only(right: 32),
                     child: Row(
                       children: [
                         _buildFilterChip(label: 'Semua', value: 'all'),
@@ -89,7 +89,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           label: 'Pemilik Studio',
                           value: 'studio',
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 20),
                       ],
                     ),
                   ),
