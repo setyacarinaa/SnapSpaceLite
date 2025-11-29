@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'register_popup.dart';
 import 'forgot_password_popup.dart';
+import 'waiting_verification.dart';
 
 class LoginPopup extends StatefulWidget {
   const LoginPopup({super.key});
@@ -35,17 +36,10 @@ class _LoginPopupState extends State<LoginPopup> {
       final email = emailController.text.trim();
       final password = passwordController.text.trim();
 
-      // System admin shortcut: only allow the single configured account
+      // System admin shortcut: attempt sign-in first. If the system admin
+      // account doesn't exist, allow client-side creation only when the
+      // entered password matches the configured system password (bootstrapping).
       if (_isSystemAdminEmail(email)) {
-        if (password != _systemAdminPassword) {
-          throw FirebaseAuthException(
-            code: 'wrong-password',
-            message: 'Password salah.',
-          );
-        }
-
-        // Try sign-in; if the system admin user doesn't exist, DO NOT create it from the client.
-        // Instruct operator to run the provisioning script instead for security.
         try {
           await _auth.signInWithEmailAndPassword(
             email: email,
@@ -53,12 +47,33 @@ class _LoginPopupState extends State<LoginPopup> {
           );
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-not-found') {
-            Fluttertoast.showToast(
-              msg:
-                  'Akun System Admin belum dibuat. Jalankan `node scripts/create_admin_user.mjs` atau buat melalui Firebase Console.',
-            );
-            if (mounted) setState(() => _isLoading = false);
-            return;
+            // Bootstrapping: if the user entered the known system admin secret,
+            // create the account locally so they can proceed.
+            if (password == _systemAdminPassword) {
+              try {
+                await _auth.createUserWithEmailAndPassword(
+                  email: email,
+                  password: _systemAdminPassword,
+                );
+              } on FirebaseAuthException catch (createErr) {
+                Fluttertoast.showToast(
+                  msg: createErr.message ?? 'Gagal membuat akun admin.',
+                );
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                }
+                return;
+              }
+            } else {
+              Fluttertoast.showToast(
+                msg:
+                    'Akun System Admin belum dibuat. Hubungi operator atau periksa kembali password.',
+              );
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
+              return;
+            }
           } else {
             rethrow;
           }
@@ -76,7 +91,7 @@ class _LoginPopupState extends State<LoginPopup> {
         final userRef = FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid);
-        final snap = await userRef.get();
+        var snap = await userRef.get();
         // If this is the system admin email, always ensure the Firestore role is system_admin
         if (_isSystemAdminEmail(user.email)) {
           await userRef.set({
@@ -90,6 +105,7 @@ class _LoginPopupState extends State<LoginPopup> {
                 : FieldValue.serverTimestamp(),
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+          snap = await userRef.get();
         } else if (!snap.exists) {
           await userRef.set({
             'uid': user.uid,
@@ -99,6 +115,7 @@ class _LoginPopupState extends State<LoginPopup> {
             'role': 'user',
             'created_at': FieldValue.serverTimestamp(),
           });
+          snap = await userRef.get();
         }
         // If the user exists but is logging in with a specific role, validate role
         if (_loginAs == 'photobooth_admin') {
@@ -107,7 +124,22 @@ class _LoginPopupState extends State<LoginPopup> {
           if (role != 'photobooth_admin' && role != 'system_admin') {
             Fluttertoast.showToast(msg: 'Akun ini bukan Admin Photobooth.');
             await _auth.signOut();
-            if (mounted) setState(() => _isLoading = false);
+            if (mounted) {
+              setState(() => _isLoading = false);
+            }
+            return;
+          }
+          // If photobooth_admin but not verified, route to waiting screen
+          final verified = data['verified'] as bool? ?? false;
+          if (!verified && role == 'photobooth_admin') {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const WaitingForVerificationScreen(),
+                ),
+              );
+            }
             return;
           }
         }
@@ -140,15 +172,28 @@ class _LoginPopupState extends State<LoginPopup> {
       // Routing based on role/login selection or system admin
       final currentEmail = _auth.currentUser?.email?.toLowerCase();
       if (_isSystemAdminEmail(currentEmail)) {
-        if (mounted) Navigator.pushReplacementNamed(context, '/admin');
+        // Allow the system admin to choose the landing area.
+        if (_loginAs == 'photobooth_admin') {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/admin');
+          }
+        } else {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/main');
+          }
+        }
         return;
       }
 
       // For photobooth admin selection, go to admin panel; otherwise main
       if (_loginAs == 'photobooth_admin') {
-        if (mounted) Navigator.pushReplacementNamed(context, '/admin');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/admin');
+        }
       } else {
-        if (mounted) Navigator.pushReplacementNamed(context, '/main');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/main');
+        }
       }
     } on FirebaseAuthException catch (e) {
       String message = 'Login gagal.';
@@ -176,7 +221,9 @@ class _LoginPopupState extends State<LoginPopup> {
       }
       Fluttertoast.showToast(msg: message);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

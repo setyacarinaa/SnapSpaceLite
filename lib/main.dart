@@ -5,10 +5,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
 import 'features/user/screens/splash_screen.dart';
+import 'core/theme/app_theme.dart';
 import 'features/user/screens/main_navigation.dart';
-import 'features/admin/screens/admin_dashboard.dart';
+import 'features/admin_system/screens/admin_dashboard.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'features/admin/screens/admin_verification_screen.dart';
+import 'features/admin_system/screens/admin_verification_screen.dart';
 
 void main() {
   // Ensure widgets binding is ready and start app immediately; we'll
@@ -110,6 +111,7 @@ class _SnapSpaceAppState extends State<SnapSpaceApp> {
     return MaterialApp(
       title: 'SnapSpace',
       debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -212,7 +214,7 @@ class _NotAuthorizedAdminScreen extends StatelessWidget {
             const Text('Hanya akun berikut yang dapat mengakses:'),
             const SizedBox(height: 8),
             const SelectableText(
-              'Email: adminsnapspace29@gmail.com',
+              'Email: adminsnapspacelite29@gmail.com',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 24),

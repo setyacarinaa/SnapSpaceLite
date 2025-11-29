@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'booking_photo_view_screen.dart';
 import 'edit_booking_screen.dart';
 
-class DetailBookingScreen extends StatelessWidget {
+class DetailBookingScreen extends StatefulWidget {
   final String bookingId;
   final Map<String, dynamic> bookingData;
 
@@ -14,11 +14,16 @@ class DetailBookingScreen extends StatelessWidget {
   });
 
   @override
+  State<DetailBookingScreen> createState() => _DetailBookingScreenState();
+}
+
+class _DetailBookingScreenState extends State<DetailBookingScreen> {
+  @override
   Widget build(BuildContext context) {
-    final nama = (bookingData['nama'] ?? '-').toString();
-    final booth = (bookingData['boothName'] ?? '-').toString();
-    final tanggal = (bookingData['tanggal'] ?? '-').toString();
-    final status = (bookingData['status'] ?? 'pending')
+    final nama = (widget.bookingData['nama'] ?? '-').toString();
+    final booth = (widget.bookingData['boothName'] ?? '-').toString();
+    final tanggal = (widget.bookingData['tanggal'] ?? '-').toString();
+    final status = (widget.bookingData['status'] ?? 'pending')
         .toString()
         .toLowerCase();
 
@@ -67,7 +72,7 @@ class DetailBookingScreen extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isDone
                       ? const Color(0xFF4981CF)
-                      : Colors.grey.withValues(alpha: 0.4),
+                      : Colors.grey.withAlpha(102),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -81,8 +86,9 @@ class DetailBookingScreen extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                BookingPhotoViewScreen(bookingId: bookingId),
+                            builder: (_) => BookingPhotoViewScreen(
+                              bookingId: widget.bookingId,
+                            ),
                           ),
                         );
                       }
@@ -132,8 +138,8 @@ class DetailBookingScreen extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (_) => EditBookingScreen(
-                            bookingId: bookingId,
-                            bookingData: bookingData,
+                            bookingId: widget.bookingId,
+                            bookingData: widget.bookingData,
                           ),
                         ),
                       );
@@ -159,7 +165,7 @@ class DetailBookingScreen extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    onPressed: () => _showDeleteDialog(context),
+                    onPressed: () => _showDeleteDialog(),
                   ),
                 ],
               ),
@@ -209,7 +215,7 @@ class DetailBookingScreen extends StatelessWidget {
     );
   }
 
-  void _showDeleteDialog(BuildContext context) {
+  void _showDeleteDialog() {
     showDialog(
       context: context,
       builder: (context) {
@@ -230,18 +236,20 @@ class DetailBookingScreen extends StatelessWidget {
               onPressed: () async {
                 await FirebaseFirestore.instance
                     .collection('bookings')
-                    .doc(bookingId)
+                    .doc(widget.bookingId)
                     .delete();
 
-                Navigator.pop(context);
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Booking berhasil dihapus'),
-                    backgroundColor: Colors.redAccent,
-                  ),
-                );
+                if (!mounted) return;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Booking berhasil dihapus'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                });
               },
               child: const Text('Hapus'),
             ),

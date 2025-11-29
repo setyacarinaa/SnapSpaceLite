@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +15,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String? userName;
   Query<Map<String, dynamic>>? boothsQuery;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userSub;
 
   @override
   void initState() {
@@ -25,13 +27,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final user = FirebaseAuth.instance.currentUser;
     // Ambil nama pengguna jika ada
     if (user != null) {
-      final userDoc = await FirebaseFirestore.instance
+      // listen to user document so changes (e.g. name) update live on HomeScreen
+      _userSub = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .get();
-      setState(() {
-        userName = userDoc.data()?['name'] ?? 'Pengguna';
-      });
+          .snapshots()
+          .listen((doc) {
+            if (!mounted) return;
+            setState(() {
+              userName = (doc.data()?['name'] as String?) ?? 'Pengguna';
+            });
+          });
     }
 
     // Prefer koleksi global 'booths'. Jika kosong, fallback ke collectionGroup('booths')
@@ -84,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         (FirebaseAuth.instance.currentUser?.email ?? '')
                             .toLowerCase()
                             .trim();
-                    final isAdmin = email == 'adminsnapspace29@gmail.com';
+                    final isAdmin = email == 'adminsnapspacelite29@gmail.com';
                     return Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -156,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: const BorderRadius.vertical(
                                     top: Radius.circular(15),
                                   ),
-                                  child: _BoothImage(
+                                  child: _boothImage(
                                     urlOrPath: image,
                                     height: 140,
                                   ),
@@ -241,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Helper widget to resolve Firebase Storage paths or direct HTTP URLs
-  Widget _BoothImage({required String urlOrPath, required double height}) {
+  Widget _boothImage({required String urlOrPath, required double height}) {
     if (urlOrPath.isEmpty) {
       return Container(
         height: height,
@@ -344,5 +350,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return '';
+  }
+
+  @override
+  void dispose() {
+    _userSub?.cancel();
+    super.dispose();
   }
 }

@@ -43,7 +43,9 @@ class _ForgotPasswordPopupState extends State<ForgotPasswordPopup> {
       }
       Fluttertoast.showToast(msg: message);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

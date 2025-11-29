@@ -13,7 +13,7 @@ Run from project root in PowerShell:
 
 #>
 
-function Prompt-SecurePasswordAsPlainText {
+function Get-SecurePasswordPlainText {
     param([string]$Prompt = 'Password')
     $secure = Read-Host -AsSecureString -Prompt $Prompt
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
@@ -40,7 +40,7 @@ $defaultAdmin = 'adminsnapspacelite29@gmail.com'
 $adminEmail = Read-Host "Admin email (leave empty to use $defaultAdmin)"
 if (-not $adminEmail) { $adminEmail = $defaultAdmin }
 
-$adminPassword = Prompt-SecurePasswordAsPlainText -Prompt 'Admin password (input hidden)'
+$adminPassword = Get-SecurePasswordPlainText -Prompt 'Admin password (input hidden)'
 if (-not $adminPassword) { Write-Host 'Password is required. Aborting.'; exit 1 }
 
 Write-Host 'Running provisioning script...'

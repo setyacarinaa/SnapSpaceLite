@@ -32,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen> {
     } else {
       // Admin goes to /admin, others to /main
       final email = (user!.email ?? '').toLowerCase().trim();
-      if (email == 'adminsnapspace29@gmail.com') {
+      if (email == 'adminsnapspacelite29@gmail.com') {
         Navigator.pushReplacementNamed(context, '/admin');
       } else {
         Navigator.pushReplacementNamed(context, '/main');
