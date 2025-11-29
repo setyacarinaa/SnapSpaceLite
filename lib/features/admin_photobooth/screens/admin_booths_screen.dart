@@ -50,6 +50,9 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
                       onPressed: _openCreate,
                       icon: const Icon(Icons.add),
                       label: const Text('Tambah Booth'),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                 ),
@@ -72,6 +75,11 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
         ),
         const SizedBox(height: 12),
         ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
           onPressed: _openCreate,
           icon: const Icon(Icons.add),
           label: const Text('Tambah Booth Baru'),
@@ -423,6 +431,12 @@ class _BoothFormState extends State<_BoothForm> {
             children: [
               Expanded(
                 child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
                   onPressed: () async {
                     final picker = ImagePicker();
                     final file = await picker.pickImage(
@@ -437,6 +451,13 @@ class _BoothFormState extends State<_BoothForm> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: saving
                       ? null
                       : () async {
@@ -462,7 +483,10 @@ class _BoothFormState extends State<_BoothForm> {
                             if (mounted) setState(() => saving = false);
                           }
                         },
-                  child: const Text('Simpan'),
+                  child: const Text(
+                    'Simpan',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
             ],

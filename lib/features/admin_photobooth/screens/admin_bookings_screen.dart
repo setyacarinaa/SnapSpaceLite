@@ -326,7 +326,10 @@ Future<void> _showBookingDialog(
                           Navigator.of(ctx).pop();
                         }
                       },
-                      child: const Text('Accept'),
+                      child: const Text(
+                        'Accept',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                     const SizedBox(height: 10),
                     OutlinedButton(
