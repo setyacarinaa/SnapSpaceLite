@@ -27,14 +27,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
     super.initState();
 
     pages = widget.role == 'photobooth_admin'
-        ? const [
+        ? [
             _Tab(title: 'Booths', child: AdminBoothsScreen()),
             _Tab(title: 'Bookings', child: AdminBookingsScreen()),
           ]
-        : const [
+        : [
             _Tab(title: 'Booths', child: AdminBoothsScreen()),
             _Tab(title: 'Bookings', child: AdminBookingsScreen()),
-            _Tab(title: 'Users', child: AdminUsersScreen()),
+            _Tab(
+              title: 'Users',
+              child: AdminUsersScreen(role: widget.role),
+            ),
           ];
 
     final user = FirebaseAuth.instance.currentUser;

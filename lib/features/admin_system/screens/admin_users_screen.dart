@@ -4,7 +4,8 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class AdminUsersScreen extends StatefulWidget {
-  const AdminUsersScreen({super.key});
+  final String role;
+  const AdminUsersScreen({super.key, this.role = 'system_admin'});
 
   @override
   State<AdminUsersScreen> createState() => _AdminUsersScreenState();
@@ -47,7 +48,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         ),
       ),
       elevation: 0,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      // Slightly reduce horizontal padding so chips don't risk overflow
+      // while keeping a comfortable tap target.
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
     );
   }
 
@@ -78,18 +81,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   const SizedBox(height: 8),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.only(right: 32),
+                    // Add a small left padding so the first chip's rounded
+                    // edge doesn't get visually clipped on narrow containers.
+                    padding: const EdgeInsets.only(left: 3, right: 28),
                     child: Row(
                       children: [
                         _buildFilterChip(label: 'Semua', value: 'all'),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         _buildFilterChip(label: 'Customer', value: 'customers'),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         _buildFilterChip(
                           label: 'Pemilik Studio',
                           value: 'studio',
                         ),
-                        const SizedBox(width: 20),
+                        const SizedBox(width: 22),
                       ],
                     ),
                   ),
@@ -199,40 +204,47 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     child: ListTile(
                       title: Text(data['name'] as String? ?? '(no name)'),
                       subtitle: Text('$roleLabel • ${data['email'] ?? ''}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.redAccent),
-                        onPressed: () async {
-                          final ok = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Delete user'),
-                              content: const Text(
-                                'Are you sure you want to delete this user?',
+                      trailing: widget.role == 'system_admin'
+                          ? IconButton(
+                              icon: const Icon(
+                                Icons.delete,
+                                color: Colors.redAccent,
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, false),
-                                  child: const Text('No'),
-                                ),
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, true),
-                                  child: const Text('Yes'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (ok == true) {
-                            try {
-                              await usersRef.doc(d.id).delete();
-                              Fluttertoast.showToast(msg: 'User removed');
-                            } catch (e) {
-                              Fluttertoast.showToast(
-                                msg: 'Failed to remove user',
-                              );
-                            }
-                          }
-                        },
-                      ),
+                              onPressed: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Delete user'),
+                                    content: const Text(
+                                      'Are you sure you want to delete this user?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('No'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: const Text('Yes'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true) {
+                                  try {
+                                    await usersRef.doc(d.id).delete();
+                                    Fluttertoast.showToast(msg: 'User removed');
+                                  } catch (e) {
+                                    Fluttertoast.showToast(
+                                      msg: 'Failed to remove user',
+                                    );
+                                  }
+                                }
+                              },
+                            )
+                          : null,
                     ),
                   );
                 },
