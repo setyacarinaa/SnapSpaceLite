@@ -36,7 +36,7 @@ if (-not (Test-Path $saPath)) {
     if ($useDefault -ne 'y') { Write-Host 'Aborting.'; exit 1 }
 }
 
-$defaultAdmin = 'adminsnapspacelite29@gmail.com'
+$defaultAdmin = 'snapspacelite@gmail.com'
 $adminEmail = Read-Host "Admin email (leave empty to use $defaultAdmin)"
 if (-not $adminEmail) { $adminEmail = $defaultAdmin }
 

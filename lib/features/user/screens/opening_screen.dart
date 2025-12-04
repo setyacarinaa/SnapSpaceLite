@@ -16,11 +16,13 @@ class _OpeningScreenState extends State<OpeningScreen> {
 
     // Tunggu 2 detik lalu kembali ke SplashScreen
     Timer(const Duration(seconds: 2), () {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const SplashScreen()),
-        (route) => false, // hapus semua route sebelumnya
-      );
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const SplashScreen()),
+          (route) => false, // hapus semua route sebelumnya
+        );
+      }
     });
   }
 
@@ -35,7 +37,7 @@ class _OpeningScreenState extends State<OpeningScreen> {
             Image(image: AssetImage('assets/images/logo.png'), width: 120),
             SizedBox(height: 10),
             Text(
-              'GOOD BYE..',
+              'Sampai jumpa..',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,

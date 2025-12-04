@@ -60,7 +60,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     // This screen is displayed inside the `AdminDashboard` scaffold.
     // Avoid returning a full Scaffold here (which would create nested
     // app bars and clipped layouts). Return a column that the parent
-    // scaffold body can display.
+    // can display.
     return Column(
       children: [
         Padding(
@@ -88,7 +88,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       children: [
                         _buildFilterChip(label: 'Semua', value: 'all'),
                         const SizedBox(width: 4),
-                        _buildFilterChip(label: 'Customer', value: 'customers'),
+                        _buildFilterChip(
+                          label: 'Pelanggan',
+                          value: 'customers',
+                        ),
                         const SizedBox(width: 4),
                         _buildFilterChip(
                           label: 'Pemilik Studio',
@@ -117,7 +120,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Error loading users'),
+                      const Text('Gagal memuat pengguna'),
                       const SizedBox(height: 8),
                       Text(
                         errText,
@@ -133,13 +136,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         children: [
                           ElevatedButton(
                             onPressed: () => setState(() {}),
-                            child: const Text('Retry'),
+                            child: const Text('Coba Lagi'),
                           ),
                           const SizedBox(width: 12),
                           if (indexUrl != null) ...[
                             ElevatedButton.icon(
                               icon: const Icon(Icons.link),
-                              label: const Text('Create Index'),
+                              label: const Text('Buat Indeks'),
                               onPressed: () async {
                                 try {
                                   await launchUrlString(
@@ -164,7 +167,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (!snap.hasData) {
-                return const Center(child: Text('No data'));
+                return const Center(child: Text('Tidak ada data'));
               }
               var docs = snap.data!.docs;
               // If we requested a filtered list (customers or studio), Firestore
@@ -192,7 +195,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 });
               }
               if (docs.isEmpty) {
-                return const Center(child: Text('No users'));
+                return const Center(child: Text('Tidak ada pengguna'));
               }
               return ListView.builder(
                 itemCount: docs.length,
@@ -202,7 +205,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   final roleLabel = (data['role'] ?? 'unknown').toString();
                   return Card(
                     child: ListTile(
-                      title: Text(data['name'] as String? ?? '(no name)'),
+                      title: Text(data['name'] as String? ?? '(tanpa nama)'),
                       subtitle: Text('$roleLabel • ${data['email'] ?? ''}'),
                       trailing: widget.role == 'system_admin'
                           ? IconButton(
@@ -214,20 +217,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                 final ok = await showDialog<bool>(
                                   context: context,
                                   builder: (ctx) => AlertDialog(
-                                    title: const Text('Delete user'),
+                                    title: const Text('Hapus pengguna'),
                                     content: const Text(
-                                      'Are you sure you want to delete this user?',
+                                      'Apakah Anda yakin ingin menghapus pengguna ini?',
                                     ),
                                     actions: [
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(ctx, false),
-                                        child: const Text('No'),
+                                        child: const Text('Tidak'),
                                       ),
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(ctx, true),
-                                        child: const Text('Yes'),
+                                        child: const Text('Ya'),
                                       ),
                                     ],
                                   ),
@@ -235,10 +238,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                 if (ok == true) {
                                   try {
                                     await usersRef.doc(d.id).delete();
-                                    Fluttertoast.showToast(msg: 'User removed');
+                                    Fluttertoast.showToast(
+                                      msg: 'Pengguna dihapus',
+                                    );
                                   } catch (e) {
                                     Fluttertoast.showToast(
-                                      msg: 'Failed to remove user',
+                                      msg: 'Gagal menghapus pengguna',
                                     );
                                   }
                                 }

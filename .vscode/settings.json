@@ -1,4 +1,5 @@
 {
   // Disable automatic JSON schema downloads to avoid ECONNRESET diagnostics
-  "json.schemaDownload.enable": false
+  "json.schemaDownload.enable": false,
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

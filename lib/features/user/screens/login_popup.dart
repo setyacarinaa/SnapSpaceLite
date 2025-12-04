@@ -86,59 +86,100 @@ class _LoginPopupState extends State<LoginPopup> {
       // Pastikan dokumen user di Firestore ada (buat jika belum ada)
       final user = _auth.currentUser;
       if (user != null) {
-        final userRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid);
-        var snap = await userRef.get();
-        // If this is the system admin email, always ensure the Firestore role is system_admin
+        // If this is the system admin email, create/update in system_admins collection
         if (_isSystemAdminEmail(user.email)) {
-          await userRef.set({
+          final systemAdminRef = FirebaseFirestore.instance
+              .collection('system_admins')
+              .doc(user.uid);
+          await systemAdminRef.set({
             'uid': user.uid,
             'name': user.displayName ?? (user.email?.split('@').first ?? ''),
             'email': user.email ?? '',
             'photoUrl': user.photoURL ?? '',
             'role': 'system_admin',
-            'created_at': snap.exists
-                ? FieldValue.serverTimestamp()
-                : FieldValue.serverTimestamp(),
+            'created_at': FieldValue.serverTimestamp(),
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
-          snap = await userRef.get();
-        } else if (!snap.exists) {
-          await userRef.set({
-            'uid': user.uid,
-            'name': user.displayName ?? (user.email?.split('@').first ?? ''),
-            'email': user.email ?? '',
-            'photoUrl': user.photoURL ?? '',
-            'role': 'user',
-            'created_at': FieldValue.serverTimestamp(),
-          });
-          snap = await userRef.get();
-        }
-        // If the user exists but is logging in with a specific role, validate role
-        if (_loginAs == 'photobooth_admin') {
-          final data = snap.exists ? snap.data() as Map<String, dynamic> : {};
-          final role = data['role'] as String? ?? 'user';
-          if (role != 'photobooth_admin' && role != 'system_admin') {
-            Fluttertoast.showToast(msg: 'Akun ini bukan Admin Photobooth.');
-            await _auth.signOut();
-            if (mounted) {
-              setState(() => _isLoading = false);
-            }
-            return;
+        } else {
+          // For non-system admin, check both collections
+          final customerDoc = await FirebaseFirestore.instance
+              .collection('customers')
+              .doc(user.uid)
+              .get();
+          final photoboothDoc = await FirebaseFirestore.instance
+              .collection('photobooth_admins')
+              .doc(user.uid)
+              .get();
+
+          // If user doesn't exist in either collection, create in customers
+          if (!customerDoc.exists && !photoboothDoc.exists) {
+            await FirebaseFirestore.instance
+                .collection('customers')
+                .doc(user.uid)
+                .set({
+                  'uid': user.uid,
+                  'name':
+                      user.displayName ?? (user.email?.split('@').first ?? ''),
+                  'email': user.email ?? '',
+                  'photoUrl': user.photoURL ?? '',
+                  'role': 'customer',
+                  'created_at': FieldValue.serverTimestamp(),
+                });
           }
-          // If photobooth_admin but not verified, route to waiting screen
-          final verified = data['verified'] as bool? ?? false;
-          if (!verified && role == 'photobooth_admin') {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const WaitingForVerificationScreen(),
-                ),
+
+          // If logging in as photobooth admin, validate role
+          if (_loginAs == 'photobooth_admin') {
+            final data = photoboothDoc.exists
+                ? photoboothDoc.data()
+                : customerDoc.exists
+                ? customerDoc.data()
+                : null;
+            final role = data?['role'] as String? ?? 'customer';
+            if (role != 'photobooth_admin' && role != 'system_admin') {
+              Fluttertoast.showToast(
+                msg:
+                    'Akun ini bukan Admin Photobooth. Silakan login sebagai User/Customer.',
               );
+              await _auth.signOut();
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
+              return;
             }
-            return;
+            // If photobooth_admin but not verified, route to waiting screen
+            final verified = data?['verified'] as bool? ?? false;
+            if (!verified && role == 'photobooth_admin') {
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => WaitingForVerificationScreen(
+                      collectionName: 'photobooth_admins',
+                    ),
+                  ),
+                );
+              }
+              return;
+            }
+          } else {
+            // If logging in as user/customer, validate they are NOT photobooth admin
+            final data = photoboothDoc.exists
+                ? photoboothDoc.data()
+                : customerDoc.exists
+                ? customerDoc.data()
+                : null;
+            final role = data?['role'] as String? ?? 'customer';
+            if (role == 'photobooth_admin') {
+              Fluttertoast.showToast(
+                msg:
+                    'Akun ini adalah Admin Photobooth. Silakan login sebagai Admin Photobooth.',
+              );
+              await _auth.signOut();
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
+              return;
+            }
           }
         }
       }
@@ -148,12 +189,24 @@ class _LoginPopupState extends State<LoginPopup> {
       final currentUser = _auth.currentUser;
       if (currentUser != null) {
         try {
-          final debugSnap = await FirebaseFirestore.instance
-              .collection('users')
+          final systemAdminSnap = await FirebaseFirestore.instance
+              .collection('system_admins')
               .doc(currentUser.uid)
               .get();
-          final debugData = debugSnap.exists
-              ? debugSnap.data() as Map<String, dynamic>
+          final customerSnap = await FirebaseFirestore.instance
+              .collection('customers')
+              .doc(currentUser.uid)
+              .get();
+          final photoboothSnap = await FirebaseFirestore.instance
+              .collection('photobooth_admins')
+              .doc(currentUser.uid)
+              .get();
+          final debugData = systemAdminSnap.exists
+              ? systemAdminSnap.data() as Map<String, dynamic>
+              : photoboothSnap.exists
+              ? photoboothSnap.data() as Map<String, dynamic>
+              : customerSnap.exists
+              ? customerSnap.data() as Map<String, dynamic>
               : {};
           debugRole = (debugData['role'] as String?) ?? 'not-set';
           Fluttertoast.showToast(
@@ -170,19 +223,9 @@ class _LoginPopupState extends State<LoginPopup> {
       // Routing based on role/login selection or system admin
       final currentEmail = _auth.currentUser?.email?.toLowerCase();
       if (_isSystemAdminEmail(currentEmail)) {
-        // System admin can choose to act as a photobooth admin or as a normal user.
+        // System admin always goes to system admin dashboard regardless of "login sebagai" selection
         if (mounted) {
-          if (_loginAs == 'photobooth_admin') {
-            // Open admin dashboard acting as photobooth admin
-            Navigator.pushReplacementNamed(
-              context,
-              '/admin/as',
-              arguments: {'role': 'photobooth_admin'},
-            );
-          } else {
-            // Act as normal user/customer and open main app
-            Navigator.pushReplacementNamed(context, '/main');
-          }
+          Navigator.pushReplacementNamed(context, '/system-admin');
         }
         return;
       }
@@ -254,7 +297,7 @@ class _LoginPopupState extends State<LoginPopup> {
               child: Column(
                 children: [
                   const Text(
-                    'Login',
+                    'Masuk',
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
@@ -262,14 +305,14 @@ class _LoginPopupState extends State<LoginPopup> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('Login sebagai: '),
+                      const Text('Masuk sebagai: '),
                       const SizedBox(width: 8),
                       DropdownButton<String>(
                         value: _loginAs,
                         items: const [
                           DropdownMenuItem(
                             value: 'user',
-                            child: Text('User / Customer'),
+                            child: Text('Pengguna / Pelanggan'),
                           ),
                           DropdownMenuItem(
                             value: 'photobooth_admin',
@@ -299,7 +342,7 @@ class _LoginPopupState extends State<LoginPopup> {
                     controller: passwordController,
                     obscureText: _obscurePassword,
                     decoration: InputDecoration(
-                      labelText: 'Password',
+                      labelText: 'Kata sandi',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -331,7 +374,7 @@ class _LoginPopupState extends State<LoginPopup> {
                             ),
                             onPressed: _loginUser,
                             child: const Text(
-                              'Login',
+                              'Masuk',
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
@@ -359,7 +402,7 @@ class _LoginPopupState extends State<LoginPopup> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text("Don't have an account? "),
+                      const Text("Belum punya akun? "),
                       GestureDetector(
                         onTap: () {
                           Navigator.pushReplacement(
@@ -370,7 +413,7 @@ class _LoginPopupState extends State<LoginPopup> {
                           );
                         },
                         child: const Text(
-                          'Sign up here',
+                          'Daftar di sini',
                           style: TextStyle(color: Colors.blueAccent),
                         ),
                       ),

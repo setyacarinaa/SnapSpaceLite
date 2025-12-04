@@ -5,7 +5,7 @@
 // - A Firebase service account key JSON file
 // Usage (PowerShell example):
 //   $env:GOOGLE_APPLICATION_CREDENTIALS="D:/path/to/serviceAccountKey.json";
-//   $env:ADMIN_EMAIL="adminsnapspacelite29@gmail.com";
+//   $env:ADMIN_EMAIL="snapspacelite@gmail.com";
 //   $env:ADMIN_PASSWORD="<your-password>";
 //   node scripts/create_admin_user.mjs
 
@@ -20,7 +20,7 @@ const log = (msg) => console.log(`[create-admin] ${msg}`)
 const error = (msg) => console.error(`[create-admin] ERROR: ${msg}`)
 
 // Read inputs from env or CLI args. Provide a sensible default for the admin email
-const DEFAULT_ADMIN_EMAIL = 'adminsnapspacelite29@gmail.com'
+const DEFAULT_ADMIN_EMAIL = 'snapspacelite@gmail.com'
 const args = process.argv.slice(2)
 const email = process.env.ADMIN_EMAIL || args[0] || DEFAULT_ADMIN_EMAIL
 const password = process.env.ADMIN_PASSWORD || args[1]
@@ -36,23 +36,30 @@ if (!email || !password) {
 let appInitDone = false
 try {
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.resolve(process.cwd(), 'serviceAccountKey.json')
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && !fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    log(`WARNING: File path in GOOGLE_APPLICATION_CREDENTIALS not found: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`)
+    log('Fallback ke applicationDefault() (hapus env var jika tetap gagal).')
+  }
   if (fs.existsSync(credPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8'))
     initializeApp({ credential: cert(serviceAccount) })
     appInitDone = true
-    log(`Initialized Firebase Admin with service account at: ${credPath}`)
+    log(`Initialized Firebase Admin dengan service account: ${credPath}`)
   }
 } catch (e) {
-  // fall through to applicationDefault
+  log('Gagal membaca service account, mencoba applicationDefault() ...')
 }
 
 if (!appInitDone) {
   try {
     initializeApp({ credential: applicationDefault() })
     appInitDone = true
-    log('Initialized Firebase Admin with applicationDefault() credentials')
+    log('Initialized Firebase Admin dengan applicationDefault() credentials')
+    log('Pastikan Anda sudah login gcloud atau GOOGLE_APPLICATION_CREDENTIALS menunjuk file yang valid.')
   } catch (e) {
     error(`Failed to initialize Firebase Admin SDK: ${e.message}`)
+    error('Perbaikan: Generate key di Firebase Console: Project Settings > Service Accounts > Generate new private key.')
+    error('Simpan file misal di ./keys/firebase-sa.json lalu set: $env:GOOGLE_APPLICATION_CREDENTIALS="./keys/firebase-sa.json"')
     process.exit(1)
   }
 }
@@ -88,7 +95,7 @@ async function ensureAdminUser(email, password) {
 
   // Upsert Firestore profile
   const userRef = db.collection('users').doc(userRecord.uid)
-    await userRef.set(
+  await userRef.set(
     {
       uid: userRecord.uid,
       email,

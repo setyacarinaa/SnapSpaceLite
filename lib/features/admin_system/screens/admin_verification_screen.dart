@@ -309,7 +309,7 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                               }
                             },
                             icon: const Icon(Icons.check),
-                            label: const Text('Approve'),
+                            label: const Text('Setujui'),
                           ),
                           const SizedBox(width: 8),
                           OutlinedButton.icon(
@@ -317,9 +317,9 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                               final ok = await showDialog<bool>(
                                 context: context,
                                 builder: (_) => AlertDialog(
-                                  title: const Text('Konfirmasi Reject'),
+                                  title: const Text('Konfirmasi Penolakan'),
                                   content: Text(
-                                    'Tandai akun $name ($email) sebagai rejected?',
+                                    'Tandai akun $name ($email) sebagai ditolak?',
                                   ),
                                   actions: [
                                     TextButton(
@@ -330,7 +330,7 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                                     TextButton(
                                       onPressed: () =>
                                           Navigator.pop(context, true),
-                                      child: const Text('Reject'),
+                                      child: const Text('Tolak'),
                                     ),
                                   ],
                                 ),
@@ -340,7 +340,7 @@ class _AdminVerificationScreenState extends State<AdminVerificationScreen> {
                               }
                             },
                             icon: const Icon(Icons.close),
-                            label: const Text('Reject'),
+                            label: const Text('Tolak'),
                           ),
                         ],
                       ),

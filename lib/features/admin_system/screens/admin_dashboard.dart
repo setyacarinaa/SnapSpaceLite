@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../core/admin_config.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fluttertoast/fluttertoast.dart';
+import 'package:snapspace/features/user/screens/opening_screen.dart';
 import 'package:snapspace/features/admin_photobooth/screens/admin_booths_screen.dart';
 import 'package:snapspace/features/admin_photobooth/screens/admin_bookings_screen.dart';
+import 'package:snapspace/features/admin_photobooth/screens/admin_profile_screen.dart';
 import 'package:snapspace/features/admin_system/screens/admin_users_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -30,14 +31,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     pages = widget.role == 'photobooth_admin'
         ? [
-            _Tab(title: 'Booths', child: AdminBoothsScreen()),
-            _Tab(title: 'Bookings', child: AdminBookingsScreen()),
+            _Tab(title: 'Booth', child: AdminBoothsScreen()),
+            _Tab(title: 'Booking', child: AdminBookingsScreen()),
+            _Tab(title: 'Profil', child: const AdminProfileScreen()),
           ]
         : [
-            _Tab(title: 'Booths', child: AdminBoothsScreen()),
-            _Tab(title: 'Bookings', child: AdminBookingsScreen()),
+            _Tab(title: 'Booth', child: AdminBoothsScreen()),
+            _Tab(title: 'Booking', child: AdminBookingsScreen()),
             _Tab(
-              title: 'Users',
+              title: 'Pengguna',
               child: AdminUsersScreen(role: widget.role),
             ),
           ];
@@ -79,14 +81,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF4981CF),
+        toolbarHeight: 56,
         title: _index == 0
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     _userName != null && _userName!.isNotEmpty
-                        ? 'Hi, $_userName'
-                        : 'SnapSpace Admin',
+                        ? 'Hai, $_userName'
+                        : 'Admin SnapSpace',
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                   Text(
@@ -107,18 +110,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
         actions: [
           IconButton(
-            tooltip: 'Logout',
+            tooltip: 'Keluar',
             icon: const Icon(Icons.logout, color: Colors.white),
             onPressed: () async {
-              final rootNav = Navigator.of(context, rootNavigator: true);
-              try {
-                await FirebaseAuth.instance.signOut();
-              } catch (_) {}
+              await FirebaseAuth.instance.signOut();
               if (!mounted) return;
-              try {
-                Fluttertoast.showToast(msg: 'Berhasil logout');
-              } catch (_) {}
-              rootNav.pushNamedAndRemoveUntil('/splash', (route) => false);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const OpeningScreen()),
+              );
             },
           ),
         ],
@@ -129,8 +129,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
             // If the current signed-in user is the special system admin
             // and they're viewing the dashboard as another role, show
             // a small banner so the operator knows they're in act-as mode.
-            if (FirebaseAuth.instance.currentUser?.email ==
-                    AdminConfig.systemAdminEmail &&
+            if (FirebaseAuth.instance.currentUser?.email
+                        ?.toLowerCase()
+                        .trim() ==
+                    AdminConfig.systemAdminEmail.toLowerCase().trim() &&
                 widget.role != 'system_admin')
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -226,7 +228,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Approved',
+                                              'Disetujui',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.black54,
@@ -250,7 +252,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Pending',
+                                              'Menunggu',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.black54,
@@ -274,7 +276,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Customers',
+                                              'Pelanggan',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.black54,
@@ -323,6 +325,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           if (title.contains('booth')) icon = Icons.photo_camera_front_outlined;
           if (title.contains('book')) icon = Icons.event_note_outlined;
           if (title.contains('user')) icon = Icons.people_outline;
+          if (title.contains('profil')) icon = Icons.person_outline;
           return BottomNavigationBarItem(icon: Icon(icon), label: p.title);
         }).toList(),
       ),

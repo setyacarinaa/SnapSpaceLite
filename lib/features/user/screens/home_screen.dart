@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:snapspace/features/user/screens/booth_detail_screen.dart';
 import 'package:snapspace/features/user/screens/image_preview_screen.dart';
 
@@ -23,13 +24,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Query<Map<String, dynamic>>? boothsQuery;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userSub;
   bool _useCollectionGroup = false;
+  Timer? _statusUpdateTimer;
 
   final TextEditingController _searchController = TextEditingController();
-  String? _selectedProvince;
   String? _selectedCity;
-  final List<String> _availableProvinces = [];
-  final Map<String, List<String>> _availableCities = {};
+  final List<String> _availableCities = [];
   final Map<String, String> _imageUrlCache = {}; // cache resolved storage URLs
+  final Map<String, String> _adminLocationCache =
+      {}; // cache adminId -> location string
+  final Map<String, String> _adminStudioNameCache =
+      {}; // cache adminId -> studio name (boothName)
+  final Map<String, bool> _adminStatusCache =
+      {}; // cache adminId -> studio open/close status
+  final Map<String, Map<String, Map<String, String>>>
+  _adminOperatingHoursCache = {}; // cache adminId -> operating hours per day
   String _selectedSort = 'Rekomendasi';
   final List<String> _sortOptions = [
     'Rekomendasi',
@@ -47,21 +55,18 @@ class _HomeScreenState extends State<HomeScreen> {
         'assets/data/indonesia_regions.json',
       );
       final Map<String, dynamic> map = json.decode(raw) as Map<String, dynamic>;
-      final provs = map.keys.map((k) => k.toString()).toList()..sort();
-      final Map<String, List<String>> cities = {};
+      // Flatten all cities from all provinces into a single sorted list
+      final Set<String> allCities = {};
       for (final e in map.entries) {
-        final list = (e.value as List).map((it) => it.toString()).toList()
-          ..sort();
-        cities[e.key.toString()] = list;
+        final list = (e.value as List).map((it) => it.toString()).toList();
+        allCities.addAll(list);
       }
+      final sortedCities = allCities.toList()..sort();
       if (!mounted) return;
       setState(() {
-        _availableProvinces
-          ..clear()
-          ..addAll(provs);
         _availableCities
           ..clear()
-          ..addAll(cities);
+          ..addAll(sortedCities);
       });
     } catch (e) {
       // ignore asset errors quietly; the booth-derived lists still work
@@ -75,6 +80,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initData();
     _loadRegionsFromAsset();
+    // Update status setiap menit untuk real-time badge buka/tutup
+    _statusUpdateTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {
+          // Trigger rebuild untuk update badge status
+        });
+      }
+    });
   }
 
   Future<void> _initData() async {
@@ -119,33 +132,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Rebuild boothsQuery applying simple equality filters for province and city.
-  // Note: Firestore doesn't support OR across fields; this will only query the
-  // fields named 'province' and 'city'. If your documents use different field
-  // names (e.g. 'provinsi'/'kota'), consider normalizing them server-side or
-  // using client-side filtering (already present). This method avoids fetching
-  // full dataset when possible.
+  // Rebuild boothsQuery - no server-side filtering, rely on client-side filtering
   void _updateBoothsQuery() {
     Query<Map<String, dynamic>> base = _useCollectionGroup
         ? FirebaseFirestore.instance.collectionGroup('booths')
         : FirebaseFirestore.instance.collection('booths');
-
-    if (_selectedProvince != null && _selectedProvince!.isNotEmpty) {
-      try {
-        base = base.where('province', isEqualTo: _selectedProvince);
-      } catch (_) {
-        // ignore: avoid_print
-        print('[HomeScreen] could not apply province filter to query');
-      }
-    }
-    if (_selectedCity != null && _selectedCity!.isNotEmpty) {
-      try {
-        base = base.where('city', isEqualTo: _selectedCity);
-      } catch (_) {
-        // ignore: avoid_print
-        print('[HomeScreen] could not apply city filter to query');
-      }
-    }
 
     setState(() {
       boothsQuery = base;
@@ -255,6 +246,154 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _formatPrice(dynamic priceValue) {
+    try {
+      final raw = (priceValue ?? '').toString();
+      final digits = RegExp(
+        r'\d+',
+      ).allMatches(raw).map((e) => e.group(0)).join();
+      if (digits.isEmpty) return 'Hubungi Admin';
+      final amount = int.parse(digits);
+      final formatter = NumberFormat.currency(
+        locale: 'id_ID',
+        symbol: 'Rp ',
+        decimalDigits: 0,
+      );
+      return formatter.format(amount);
+    } catch (_) {
+      return 'Hubungi Admin';
+    }
+  }
+
+  // Prefetch admin locations and status for a set of admin userIds and cache them
+  Future<void> _prefetchAdminData(Set<String> adminIds) async {
+    final missing = adminIds
+        .where((id) => !_adminLocationCache.containsKey(id))
+        .toList();
+    if (missing.isEmpty) return;
+    try {
+      final futures = missing.map(
+        (id) => FirebaseFirestore.instance
+            .collection('photobooth_admins')
+            .doc(id)
+            .get(),
+      );
+      final snaps = await Future.wait(futures);
+      for (final snap in snaps) {
+        if (snap.exists) {
+          final data = snap.data() ?? {};
+          final loc = (data['location'] ?? '').toString();
+          _adminLocationCache[snap.id] = loc;
+
+          // Get studio name (boothName)
+          final studioName = (data['boothName'] ?? '').toString();
+          _adminStudioNameCache[snap.id] = studioName;
+          print('DEBUG: Loaded studio name for ${snap.id}: $studioName');
+
+          // Get operating hours
+          final operatingHours = data['operatingHours'];
+          if (operatingHours != null && operatingHours is Map) {
+            final Map<String, Map<String, String>> hours = {};
+            operatingHours.forEach((key, value) {
+              if (value is Map) {
+                hours[key.toString()] = {
+                  'open': (value['open'] ?? '09:00').toString(),
+                  'close': (value['close'] ?? '17:00').toString(),
+                  'isOpen': (value['isOpen'] ?? 'true').toString(),
+                };
+              }
+            });
+            _adminOperatingHoursCache[snap.id] = hours;
+          }
+
+          // Get studio status (open/close) - will be overridden by real-time check
+          final status = data['status'] ?? data['isOpen'] ?? data['open'];
+          bool isOpen = true; // default open
+          if (status is bool) {
+            isOpen = status;
+          } else if (status is String) {
+            isOpen = status.toLowerCase() == 'open';
+          }
+          _adminStatusCache[snap.id] = isOpen;
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // ignore fetch errors
+    }
+  }
+
+  // Check if studio is open based on current day and time
+  bool _isStudioOpenNow(String adminId) {
+    // If no cache data, return false (closed) for safety
+    if (!_adminStatusCache.containsKey(adminId)) return false;
+    if (!_adminStatusCache[adminId]!) return false; // Studio manually closed
+
+    // Check operating hours
+    if (!_adminOperatingHoursCache.containsKey(adminId)) return false;
+
+    final now = DateTime.now();
+    final dayNames = [
+      'Minggu',
+      'Senin',
+      'Selasa',
+      'Rabu',
+      'Kamis',
+      'Jumat',
+      'Sabtu',
+    ];
+    final currentDay = dayNames[now.weekday % 7];
+
+    final hours = _adminOperatingHoursCache[adminId];
+    if (hours == null || !hours.containsKey(currentDay)) return false;
+
+    final daySchedule = hours[currentDay]!;
+    final isDayOpen = daySchedule['isOpen'] == 'true';
+    if (!isDayOpen) return false;
+
+    // Parse open and close times
+    try {
+      final openParts = daySchedule['open']!.split(':');
+      final closeParts = daySchedule['close']!.split(':');
+
+      final openTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        int.parse(openParts[0]),
+        int.parse(openParts[1]),
+      );
+      final closeTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        int.parse(closeParts[0]),
+        int.parse(closeParts[1]),
+      );
+
+      // Check if 24 hours (00:00 - 00:00)
+      if (daySchedule['open'] == '00:00' && daySchedule['close'] == '00:00') {
+        return true;
+      }
+
+      // Handle case where close time is on the next day (e.g., 22:00 - 02:00)
+      var adjustedCloseTime = closeTime;
+      if (adjustedCloseTime.isBefore(openTime)) {
+        adjustedCloseTime = adjustedCloseTime.add(const Duration(days: 1));
+      }
+
+      // Check if current time is within operating hours
+      // now >= openTime AND now < closeTime
+      return (now.isAfter(openTime) || now.isAtSameMomentAs(openTime)) &&
+          now.isBefore(adjustedCloseTime);
+    } catch (e) {
+      // If parsing fails, return false (closed) for safety
+      // ignore: avoid_print
+      print('[HomeScreen] Error parsing operating hours: $e');
+      return false;
+    }
+  }
+
   void _applySortToList(List<Map<String, dynamic>> list) {
     switch (_selectedSort) {
       case 'Terbaru':
@@ -279,53 +418,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildFilterChips() {
-    final chips = <Widget>[];
-    final query = _searchController.text.trim();
-    if (query.isNotEmpty) {
-      chips.add(
-        Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: InputChip(
-            label: Text('Cari: "$query"'),
-            onDeleted: () => setState(() => _searchController.clear()),
-          ),
-        ),
-      );
-    }
-    if (_selectedProvince != null && _selectedProvince!.isNotEmpty) {
-      chips.add(
-        Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: InputChip(
-            label: Text('Provinsi: ${_selectedProvince!}'),
-            onDeleted: () => setState(() => _selectedProvince = null),
-          ),
-        ),
-      );
-    }
-    if (_selectedCity != null && _selectedCity!.isNotEmpty) {
-      chips.add(
-        Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: InputChip(
-            label: Text('Kota: ${_selectedCity!}'),
-            onDeleted: () => setState(() => _selectedCity = null),
-          ),
-        ),
-      );
-    }
-
-    if (chips.isEmpty) return const SizedBox.shrink();
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Wrap(children: chips),
-    );
-  }
+  // Removed filter chips builder; chips no longer displayed under search bar.
 
   @override
   void dispose() {
     _userSub?.cancel();
+    _statusUpdateTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -342,7 +440,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              userName != null ? 'Hi, $userName!' : 'Hi!',
+              userName != null ? 'Hai, $userName!' : 'Hai!',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -382,186 +480,166 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color.fromRGBO(0, 0, 0, 0.06),
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _searchController,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        hintText: 'Cari photobooth atau nama studio',
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Color(0xFF6B7AA7),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF3F6FB),
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                          horizontal: 12,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.black45),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(child: _buildFilterChips()),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 160,
-                          child: DropdownButtonFormField<String>(
-                            isExpanded: true,
-                            initialValue: _selectedSort,
-                            decoration: InputDecoration(
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 10,
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFFF3F6FB),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide.none,
-                              ),
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Cari photobooth atau nama studio',
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              color: Color(0xFF4E86D6),
+                              size: 20,
                             ),
-                            items: _sortOptions
-                                .map(
-                                  (s) => DropdownMenuItem<String>(
-                                    value: s,
-                                    child: Text(
-                                      s,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) => setState(
-                              () => _selectedSort = v ?? 'Rekomendasi',
+                            filled: true,
+                            fillColor: const Color(0xFFF8F9FD),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 12,
+                            ),
+                            hintStyle: const TextStyle(
+                              color: Colors.black38,
+                              fontSize: 13,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF4E86D6),
+                                width: 1.5,
+                              ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final gap = 8.0;
-                        final half = (constraints.maxWidth - gap) / 2;
-
-                        return Row(
-                          children: [
-                            SizedBox(
-                              width: half,
-                              child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue:
-                                    (_selectedProvince == null ||
-                                        _selectedProvince!.isEmpty)
-                                    ? null
-                                    : _selectedProvince,
-                                decoration: InputDecoration(
-                                  isDense: true,
-                                  prefixIcon: const Icon(
-                                    Icons.map,
-                                    color: Color(0xFF6B7AA7),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 10,
-                                  ),
-                                  filled: true,
-                                  fillColor: const Color(0xFFF3F6FB),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 145,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFFE5E8F0),
+                            width: 1,
+                          ),
+                        ),
+                        child: DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: _selectedSort,
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 8,
+                            ),
+                            border: InputBorder.none,
+                            prefixIcon: Icon(
+                              Icons.sort_rounded,
+                              size: 18,
+                              color: Color(0xFF4E86D6),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.arrow_drop_down_rounded,
+                            color: Color(0xFF6B7AA7),
+                            size: 20,
+                          ),
+                          items: _sortOptions
+                              .map(
+                                (s) => DropdownMenuItem<String>(
+                                  value: s,
+                                  child: Text(
+                                    s,
+                                    style: const TextStyle(fontSize: 13),
                                   ),
                                 ),
-                                items: _availableProvinces
-                                    .map(
-                                      (p) => DropdownMenuItem<String>(
-                                        value: p,
-                                        child: Text(p),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: (v) => setState(() {
-                                  _selectedProvince = v;
-                                  _selectedCity = null;
-                                  _updateBoothsQuery();
-                                }),
-                              ),
-                            ),
-                            SizedBox(width: gap),
-                            SizedBox(
-                              width: half,
-                              child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue:
-                                    (_selectedCity == null ||
-                                        _selectedCity!.isEmpty)
-                                    ? null
-                                    : _selectedCity,
-                                decoration: InputDecoration(
-                                  isDense: true,
-                                  prefixIcon: const Icon(
-                                    Icons.location_city,
-                                    color: Color(0xFF6B7AA7),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 10,
-                                  ),
-                                  filled: true,
-                                  fillColor: const Color(0xFFF3F6FB),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                                items:
-                                    (_selectedProvince == null
-                                            ? <String>[]
-                                            : (_availableCities[_selectedProvince] ??
-                                                  <String>[]))
-                                        .map(
-                                          (c) => DropdownMenuItem<String>(
-                                            value: c,
-                                            child: Text(c),
-                                          ),
-                                        )
-                                        .toList(),
-                                onChanged: (v) => setState(() {
-                                  _selectedCity = v;
-                                  _updateBoothsQuery();
-                                }),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                              )
+                              .toList(),
+                          onChanged: (v) => setState(
+                            () => _selectedSort = v ?? 'Rekomendasi',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFE5E8F0),
+                        width: 1,
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
+                    child: DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue:
+                          (_selectedCity == null || _selectedCity!.isEmpty)
+                          ? null
+                          : _selectedCity,
+                      hint: const Text(
+                        'Pilih Kota/Kabupaten',
+                        style: TextStyle(fontSize: 13, color: Colors.black45),
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        prefixIcon: Icon(
+                          Icons.location_city_outlined,
+                          size: 18,
+                          color: Color(0xFF4E86D6),
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 10,
+                        ),
+                        border: InputBorder.none,
+                      ),
+                      icon: const Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: Color(0xFF6B7AA7),
+                      ),
+                      items: _availableCities
+                          .map(
+                            (c) => DropdownMenuItem<String>(
+                              value: c,
+                              child: Text(
+                                c,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() {
+                        _selectedCity = v;
+                        _updateBoothsQuery();
+                      }),
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(
@@ -590,86 +668,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           return m;
                         }).toList();
 
-                        // Build province / city lists from fetched booths (for filter dropdowns)
-                        final Set<String> provincesSet = <String>{};
-                        final Map<String, Set<String>> citiesSets = {};
-                        for (final b in booths) {
-                          final prov = (b['province'] ?? b['provinsi'] ?? '')
-                              .toString()
-                              .trim();
-                          final city =
-                              (b['city'] ?? b['kota'] ?? b['kabupaten'] ?? '')
-                                  .toString()
-                                  .trim();
-                          if (prov.isNotEmpty) provincesSet.add(prov);
-                          final key = prov.isNotEmpty ? prov : '';
-                          citiesSets.putIfAbsent(key, () => <String>{});
-                          if (city.isNotEmpty) citiesSets[key]!.add(city);
-                        }
+                        // Prefetch admin locations and status for filtering and display
+                        final adminIds = booths
+                            .map((b) => (b['createdBy'] ?? '').toString())
+                            .where((id) => id.isNotEmpty)
+                            .toSet();
+                        unawaited(_prefetchAdminData(adminIds));
 
-                        final newProvinces = provincesSet.toList()..sort();
-                        final Map<String, List<String>> newCities = {};
-                        for (final e in citiesSets.entries) {
-                          final list = e.value.toList()..sort();
-                          newCities[e.key] = list;
-                        }
-
-                        final provincesChanged =
-                            _availableProvinces.length != newProvinces.length ||
-                            !_availableProvinces.every(
-                              (p) => newProvinces.contains(p),
-                            );
-                        var citiesChanged =
-                            _availableCities.length != newCities.length;
-                        if (!citiesChanged) {
-                          for (final k in newCities.keys) {
-                            final a = _availableCities[k] ?? <String>[];
-                            final b = newCities[k] ?? <String>[];
-                            if (a.length != b.length ||
-                                !a.every((x) => b.contains(x))) {
-                              citiesChanged = true;
-                              break;
-                            }
-                          }
-                        }
-
-                        if (provincesChanged || citiesChanged) {
-                          // Schedule update after this build frame to avoid calling setState during build
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!mounted) return;
-                            setState(() {
-                              _availableProvinces
-                                ..clear()
-                                ..addAll(newProvinces);
-                              _availableCities
-                                ..clear()
-                                ..addAll(newCities);
-                              if (_selectedProvince != null &&
-                                  !_availableProvinces.contains(
-                                    _selectedProvince,
-                                  )) {
-                                _selectedProvince = null;
-                                _selectedCity = null;
-                              }
-                              if (_selectedCity != null) {
-                                final citiesForProv =
-                                    _availableCities[_selectedProvince] ??
-                                    <String>[];
-                                if (!citiesForProv.contains(_selectedCity)) {
-                                  _selectedCity = null;
-                                }
-                              }
-                            });
-                          });
-                        }
+                        // Keep province/city options from assets (indonesia_regions.json) only
 
                         final query = _searchController.text
                             .trim()
                             .toLowerCase();
                         final hasFilter =
                             query.isNotEmpty ||
-                            (_selectedProvince != null &&
-                                _selectedProvince!.isNotEmpty) ||
                             (_selectedCity != null &&
                                 _selectedCity!.isNotEmpty);
 
@@ -687,32 +699,62 @@ class _HomeScreenState extends State<HomeScreen> {
                                   (b['name'] ?? b['title'] ?? b['studio'] ?? '')
                                       .toString()
                                       .toLowerCase();
-                              final city =
-                                  (b['city'] ??
-                                          b['kota'] ??
-                                          b['kabupaten'] ??
-                                          '')
-                                      .toString()
-                                      .toLowerCase();
-                              final province =
-                                  (b['province'] ?? b['provinsi'] ?? '')
-                                      .toString()
-                                      .toLowerCase();
+
+                              // Ambil lokasi dari photobooth_admins (via cache) sebagai sumber utama
+                              final createdBy = (b['createdBy'] ?? '')
+                                  .toString();
+                              String locationStr = '';
+                              if (createdBy.isNotEmpty &&
+                                  _adminLocationCache.containsKey(createdBy)) {
+                                locationStr =
+                                    _adminLocationCache[createdBy] ?? '';
+                              }
+                              // Fallback: jika admin location tidak ada, gunakan booth location
+                              if (locationStr.trim().isEmpty) {
+                                locationStr = (b['location'] ?? '').toString();
+                              }
+
+                              // Parse city dari locationStr
+                              // Jika format "Kota, Provinsi" ambil bagian pertama saja
+                              // Jika format "Padang" langsung gunakan itu
+                              String rawCity = locationStr.trim();
+                              if (locationStr.contains(',')) {
+                                final parts = locationStr
+                                    .split(',')
+                                    .map((s) => s.trim())
+                                    .toList();
+                                rawCity = parts[0];
+                              }
+
+                              // Normalisasi: lowercase, trim, hapus awalan kota/kabupaten
+                              final city = rawCity
+                                  .toLowerCase()
+                                  .trim()
+                                  .replaceFirst(
+                                    RegExp(
+                                      '^(kota|kabupaten)\\s+',
+                                      caseSensitive: false,
+                                    ),
+                                    '',
+                                  )
+                                  .trim();
+
                               final matchesQuery = query.isEmpty
                                   ? true
                                   : (name.contains(query) ||
                                         city.contains(query) ||
-                                        province.contains(query));
-                              final matchesProvince = _selectedProvince == null
+                                        locationStr.toLowerCase().contains(
+                                          query,
+                                        ));
+
+                              // Pencocokan filter dropdown: case-insensitive contains matching untuk kota
+                              final matchesCity =
+                                  _selectedCity == null ||
+                                      _selectedCity!.isEmpty
                                   ? true
-                                  : (province ==
-                                        _selectedProvince!.toLowerCase());
-                              final matchesCity = _selectedCity == null
-                                  ? true
-                                  : (city == _selectedCity!.toLowerCase());
-                              return matchesQuery &&
-                                  matchesProvince &&
-                                  matchesCity;
+                                  : city.contains(_selectedCity!.toLowerCase());
+
+                              return matchesQuery && matchesCity;
                             }).toList();
                           }
 
@@ -736,288 +778,442 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
 
                         return GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
-                                mainAxisSpacing: 10,
-                                crossAxisSpacing: 10,
-                                childAspectRatio: 0.84,
+                                mainAxisSpacing: 14,
+                                crossAxisSpacing: 14,
+                                childAspectRatio: 0.72,
                               ),
                           itemCount: displayList.length,
                           itemBuilder: (context, index) {
                             final b = displayList[index];
-                            final locCity =
-                                (b['city'] ?? b['kota'] ?? b['kabupaten'] ?? '')
-                                    .toString();
-                            final locProv =
-                                (b['province'] ?? b['provinsi'] ?? '')
-                                    .toString();
+                            final createdBy = (b['createdBy'] ?? '').toString();
                             final imgField = _pickImageField(b);
-                            final price =
-                                (b['price'] ?? b['harga'] ?? b['rate'] ?? '')
-                                    .toString();
-                            final isOpen =
-                                (b['status'] ??
-                                            b['open'] ??
-                                            b['isOpen'] ??
-                                            'open')
-                                        .toString()
-                                        .toLowerCase() ==
-                                    'open' ||
-                                (b['open'] == true);
+                            final price = b['price'] ?? b['harga'] ?? b['rate'];
+                            final duration = (b['duration'] ?? '1').toString();
+                            // Check if studio is open based on real-time operating hours
+                            final isOpen = createdBy.isNotEmpty
+                                ? _isStudioOpenNow(createdBy)
+                                : false; // default closed if no admin info
 
-                            return Material(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              elevation: 1.5,
-                              child: InkWell(
-                                onTap: () {
-                                  final ref = b['__ref'];
-                                  if (ref is DocumentReference) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            BoothDetailScreen(boothRef: ref),
-                                      ),
-                                    );
-                                  } else if (b['__id'] != null) {
-                                    // Fallback: try to construct a top-level reference using the id
-                                    final fallbackRef = FirebaseFirestore
-                                        .instance
-                                        .collection('booths')
-                                        .doc(b['__id'].toString());
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => BoothDetailScreen(
-                                          boothRef: fallbackRef,
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.08),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                child: InkWell(
+                                  onTap: () {
+                                    final ref = b['__ref'];
+                                    if (ref is DocumentReference) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              BoothDetailScreen(boothRef: ref),
                                         ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: Stack(
-                                        children: [
-                                          Positioned.fill(
-                                            child: GestureDetector(
-                                              onTap: () async {
-                                                if (imgField.isEmpty) return;
-                                                final messenger =
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    );
-                                                final navigator = Navigator.of(
-                                                  context,
-                                                );
-                                                final url =
-                                                    await _getResolvedImageUrl(
-                                                      imgField,
-                                                    );
-                                                if (!mounted) return;
-                                                if (url.isNotEmpty) {
-                                                  navigator.push(
-                                                    MaterialPageRoute(
-                                                      builder: (_) =>
-                                                          ImagePreviewScreen(
-                                                            imageUrl: url,
-                                                          ),
-                                                    ),
-                                                  );
-                                                } else {
-                                                  messenger.showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                        'Gagal memuat foto',
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                              child: ClipRRect(
-                                                borderRadius:
-                                                    const BorderRadius.vertical(
-                                                      top: Radius.circular(10),
-                                                    ),
-                                                child: imgField.isNotEmpty
-                                                    ? FutureBuilder<String>(
-                                                        future:
-                                                            _getResolvedImageUrl(
-                                                              imgField,
+                                      );
+                                    } else if (b['__id'] != null) {
+                                      // Fallback: try to construct a top-level reference using the id
+                                      final fallbackRef = FirebaseFirestore
+                                          .instance
+                                          .collection('booths')
+                                          .doc(b['__id'].toString());
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => BoothDetailScreen(
+                                            boothRef: fallbackRef,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(
+                                        child: Stack(
+                                          children: [
+                                            Positioned.fill(
+                                              child: GestureDetector(
+                                                onTap: () async {
+                                                  if (imgField.isEmpty) return;
+                                                  final messenger =
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      );
+                                                  final navigator =
+                                                      Navigator.of(context);
+                                                  final url =
+                                                      await _getResolvedImageUrl(
+                                                        imgField,
+                                                      );
+                                                  if (!mounted) return;
+                                                  if (url.isNotEmpty) {
+                                                    navigator.push(
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            ImagePreviewScreen(
+                                                              imageUrl: url,
                                                             ),
-                                                        builder: (c, s) {
-                                                          final resolved =
-                                                              (s.data ?? '')
-                                                                  .trim();
-                                                          if (s.connectionState ==
-                                                              ConnectionState
-                                                                  .waiting) {
-                                                            return Container(
-                                                              color: Colors
-                                                                  .grey[200],
-                                                              child: const Center(
-                                                                child: SizedBox(
-                                                                  width: 28,
-                                                                  height: 28,
-                                                                  child: CircularProgressIndicator(
-                                                                    strokeWidth:
-                                                                        2,
-                                                                  ),
-                                                                ),
+                                                      ),
+                                                    );
+                                                  } else {
+                                                    messenger.showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Gagal memuat foto',
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
+                                                },
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      const BorderRadius.vertical(
+                                                        top: Radius.circular(
+                                                          16,
+                                                        ),
+                                                      ),
+                                                  child: imgField.isNotEmpty
+                                                      ? FutureBuilder<String>(
+                                                          future:
+                                                              _getResolvedImageUrl(
+                                                                imgField,
                                                               ),
-                                                            );
-                                                          }
-                                                          if (resolved
-                                                              .isEmpty) {
-                                                            return Container(
-                                                              color: Colors
-                                                                  .grey[100],
-                                                              child: const Center(
-                                                                child: Icon(
-                                                                  Icons
-                                                                      .image_not_supported,
-                                                                  size: 48,
-                                                                  color: Colors
-                                                                      .black38,
-                                                                ),
-                                                              ),
-                                                            );
-                                                          }
-                                                          return Image.network(
-                                                            resolved,
-                                                            fit: BoxFit.cover,
-                                                            errorBuilder:
-                                                                (
-                                                                  c,
-                                                                  e,
-                                                                  st,
-                                                                ) => Container(
-                                                                  color: Colors
-                                                                      .grey[100],
-                                                                  child: const Center(
-                                                                    child: Icon(
-                                                                      Icons
-                                                                          .broken_image,
-                                                                      size: 48,
-                                                                      color: Colors
-                                                                          .black38,
+                                                          builder: (c, s) {
+                                                            final resolved =
+                                                                (s.data ?? '')
+                                                                    .trim();
+                                                            if (s.connectionState ==
+                                                                ConnectionState
+                                                                    .waiting) {
+                                                              return Container(
+                                                                color: Colors
+                                                                    .grey[200],
+                                                                child: const Center(
+                                                                  child: SizedBox(
+                                                                    width: 28,
+                                                                    height: 28,
+                                                                    child: CircularProgressIndicator(
+                                                                      strokeWidth:
+                                                                          2,
                                                                     ),
                                                                   ),
                                                                 ),
-                                                          );
-                                                        },
-                                                      )
-                                                    : Container(
-                                                        color: Colors.grey[100],
-                                                        child: const Center(
-                                                          child: Icon(
-                                                            Icons.image,
-                                                            size: 44,
-                                                            color:
-                                                                Colors.black26,
+                                                              );
+                                                            }
+                                                            if (resolved
+                                                                .isEmpty) {
+                                                              return Container(
+                                                                color: Colors
+                                                                    .grey[100],
+                                                                child: const Center(
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .image_not_supported,
+                                                                    size: 48,
+                                                                    color: Colors
+                                                                        .black38,
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            }
+                                                            return Image.network(
+                                                              resolved,
+                                                              fit: BoxFit.cover,
+                                                              errorBuilder: (c, e, st) => Container(
+                                                                color: Colors
+                                                                    .grey[100],
+                                                                child: const Center(
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .broken_image,
+                                                                    size: 48,
+                                                                    color: Colors
+                                                                        .black38,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            );
+                                                          },
+                                                        )
+                                                      : Container(
+                                                          color:
+                                                              Colors.grey[100],
+                                                          child: const Center(
+                                                            child: Icon(
+                                                              Icons.image,
+                                                              size: 44,
+                                                              color: Colors
+                                                                  .black26,
+                                                            ),
                                                           ),
                                                         ),
-                                                      ),
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                          if (isOpen)
                                             Positioned(
-                                              left: 8,
-                                              top: 8,
+                                              left: 10,
+                                              top: 10,
                                               child: Container(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 4,
+                                                      horizontal: 10,
+                                                      vertical: 5,
                                                     ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.blueAccent
-                                                      .withAlpha(242),
+                                                  gradient: isOpen
+                                                      ? const LinearGradient(
+                                                          colors: [
+                                                            Color(0xFF4CAF50),
+                                                            Color(0xFF66BB6A),
+                                                          ],
+                                                        )
+                                                      : const LinearGradient(
+                                                          colors: [
+                                                            Color(0xFFF44336),
+                                                            Color(0xFFE57373),
+                                                          ],
+                                                        ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: isOpen
+                                                          ? Colors.green
+                                                                .withOpacity(
+                                                                  0.3,
+                                                                )
+                                                          : Colors.red
+                                                                .withOpacity(
+                                                                  0.3,
+                                                                ),
+                                                      blurRadius: 6,
+                                                      offset: const Offset(
+                                                        0,
+                                                        2,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      isOpen
+                                                          ? Icons.check_circle
+                                                          : Icons.cancel,
+                                                      color: Colors.white,
+                                                      size: 12,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      isOpen ? 'Buka' : 'Tutup',
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.vertical(
+                                            bottom: Radius.circular(16),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              b['name'] ??
+                                                  b['title'] ??
+                                                  'Photobooth',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                color: Color(0xFF2C3E50),
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            // Nama Studio
+                                            if (createdBy.isNotEmpty)
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.store,
+                                                    size: 12,
+                                                    color: Colors.grey.shade600,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Builder(
+                                                      builder: (context) {
+                                                        final studioName =
+                                                            _adminStudioNameCache
+                                                                .containsKey(
+                                                                  createdBy,
+                                                                )
+                                                            ? (_adminStudioNameCache[createdBy]!
+                                                                      .isNotEmpty
+                                                                  ? _adminStudioNameCache[createdBy]!
+                                                                  : 'Studio')
+                                                            : 'Studio';
+                                                        print(
+                                                          'DEBUG RENDER: Studio name for $createdBy: $studioName (cache has: ${_adminStudioNameCache.containsKey(createdBy)})',
+                                                        );
+                                                        return Text(
+                                                          studioName,
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color: Colors
+                                                                .grey
+                                                                .shade600,
+                                                            fontStyle: FontStyle
+                                                                .italic,
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        );
+                                                      },
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            const SizedBox(height: 6),
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.location_on_rounded,
+                                                  size: 14,
+                                                  color: Color(0xFF6B7AA7),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    createdBy.isNotEmpty &&
+                                                            _adminLocationCache
+                                                                .containsKey(
+                                                                  createdBy,
+                                                                )
+                                                        ? (_adminLocationCache[createdBy]!
+                                                                  .isNotEmpty
+                                                              ? _adminLocationCache[createdBy]!
+                                                              : 'Lokasi tidak tersedia')
+                                                        : 'Lokasi tidak tersedia',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.black54,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            if (price != null)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 6,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  gradient:
+                                                      const LinearGradient(
+                                                        colors: [
+                                                          Color(0xFFE3F2FD),
+                                                          Color(0xFFBBDEFB),
+                                                        ],
+                                                      ),
                                                   borderRadius:
                                                       BorderRadius.circular(8),
                                                 ),
-                                                child: const Text(
-                                                  'Buka',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        _formatPrice(price),
+                                                        style: const TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: Color(
+                                                            0xFF1565C0,
+                                                          ),
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 6,
+                                                            vertical: 2,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                          0xFF1565C0,
+                                                        ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              4,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        duration,
+                                                        style: const TextStyle(
+                                                          fontSize: 10,
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
-                                            ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFBFE0FF),
-                                        borderRadius:
-                                            const BorderRadius.vertical(
-                                              bottom: Radius.circular(10),
-                                            ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            b['name'] ??
-                                                b['title'] ??
-                                                'Photobooth',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  locCity.isNotEmpty
-                                                      ? locCity
-                                                      : locProv,
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.black54,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              if (price.isNotEmpty)
-                                                Text(
-                                                  price,
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.black87,
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             );

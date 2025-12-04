@@ -2,7 +2,7 @@
 // Helper to set the `system_admin` custom claim for an existing Auth user
 // and upsert the Firestore profile with role='system_admin'.
 // Usage (PowerShell):
-//   $env:GOOGLE_APPLICATION_CREDENTIALS='D:/keys/firebase-sa.json'; $env:ADMIN_EMAIL='admin@example.com'; node .\scripts\set_system_admin_claim.mjs
+//   $env:GOOGLE_APPLICATION_CREDENTIALS='./keys/firebase-sa.json'; $env:ADMIN_EMAIL='admin@example.com'; node .\scripts\set_system_admin_claim.mjs
 
 import fs from 'fs'
 import path from 'path'

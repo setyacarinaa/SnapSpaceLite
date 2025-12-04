@@ -133,9 +133,40 @@ class RiwayatBookingScreen extends StatelessWidget {
                               color: Color(0xFF333333),
                             ),
                           ),
-                          subtitle: Text(
-                            '$tanggal • $jam',
-                            style: const TextStyle(color: Colors.black54),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$tanggal • $jam',
+                                style: const TextStyle(color: Colors.black54),
+                              ),
+                              if (rawStatus.toLowerCase() == 'rejected' &&
+                                  data['rejectionReason'] != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      size: 14,
+                                      color: Colors.red.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        data['rejectionReason'].toString(),
+                                        style: TextStyle(
+                                          color: Colors.red.shade700,
+                                          fontSize: 11,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ),
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(

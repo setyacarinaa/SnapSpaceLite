@@ -5,9 +5,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
 import 'features/user/screens/splash_screen.dart';
+import 'features/user/screens/opening_screen.dart';
 import 'core/theme/app_theme.dart';
 import 'features/user/screens/main_navigation.dart';
 import 'features/admin_system/screens/admin_dashboard.dart';
+import 'features/admin_system/screens/system_admin_dashboard.dart';
 import 'core/admin_config.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'features/admin_system/screens/admin_verification_screen.dart';
@@ -122,7 +124,9 @@ class _SnapSpaceAppState extends State<SnapSpaceApp> {
       home: const SplashScreen(),
       routes: {
         '/splash': (context) => const SplashScreen(),
+        '/opening': (context) => const OpeningScreen(),
         '/main': (context) => const MainNavigation(),
+        '/system-admin': (context) => const SystemAdminDashboard(),
         '/admin': (context) => const _AdminGate(),
         // Admin 'act as' route - allows system admin to view dashboards as other roles
         '/admin/as': (context) {
@@ -167,16 +171,33 @@ class _AdminGate extends StatelessWidget {
           );
         }
         final user = authSnap.data;
-        if (user == null) return const _NotAuthorizedAdminScreen();
+        if (user == null) {
+          // Redirect to splash instead of showing "Access Denied"
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              Navigator.of(context).pushReplacementNamed('/splash');
+            }
+          });
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-        // Fetch user role from Firestore. Check both `users/{uid}` and the
-        // new `photobooth_admins/{uid}` collection so role detection works
-        // during/after migration.
+        // Fetch user role from Firestore. Check system_admins, photobooth_admins,
+        // users, and customers collections for role detection.
         return FutureBuilder<List<DocumentSnapshot>>(
           future: Future.wait([
+            FirebaseFirestore.instance
+                .collection('system_admins')
+                .doc(user.uid)
+                .get(),
             FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
             FirebaseFirestore.instance
                 .collection('photobooth_admins')
+                .doc(user.uid)
+                .get(),
+            FirebaseFirestore.instance
+                .collection('customers')
                 .doc(user.uid)
                 .get(),
           ]),
@@ -186,15 +207,27 @@ class _AdminGate extends StatelessWidget {
                 body: Center(child: CircularProgressIndicator()),
               );
             }
-            final userDoc = snaps.data != null && snaps.data!.isNotEmpty
+            final systemAdminDoc = snaps.data != null && snaps.data!.isNotEmpty
                 ? snaps.data![0]
                 : null;
-            final photodoc = snaps.data != null && snaps.data!.length > 1
+            final userDoc = snaps.data != null && snaps.data!.length > 1
                 ? snaps.data![1]
+                : null;
+            final photodoc = snaps.data != null && snaps.data!.length > 2
+                ? snaps.data![2]
+                : null;
+            final customerDoc = snaps.data != null && snaps.data!.length > 3
+                ? snaps.data![3]
                 : null;
 
             String? role;
-            if (photodoc != null && photodoc.exists) {
+            // Check system_admins first (highest priority)
+            if (systemAdminDoc != null && systemAdminDoc.exists) {
+              role =
+                  (systemAdminDoc.data() as Map<String, dynamic>?)?['role']
+                      as String?;
+            }
+            if (role == null && photodoc != null && photodoc.exists) {
               role =
                   (photodoc.data() as Map<String, dynamic>?)?['role']
                       as String?;
@@ -202,6 +235,11 @@ class _AdminGate extends StatelessWidget {
             if (role == null && userDoc != null && userDoc.exists) {
               role =
                   (userDoc.data() as Map<String, dynamic>?)?['role'] as String?;
+            }
+            if (role == null && customerDoc != null && customerDoc.exists) {
+              role =
+                  (customerDoc.data() as Map<String, dynamic>?)?['role']
+                      as String?;
             }
 
             if (role == 'system_admin') {
@@ -211,8 +249,15 @@ class _AdminGate extends StatelessWidget {
               return const AdminDashboard(role: 'photobooth_admin');
             }
 
-            // not authorized
-            return const _NotAuthorizedAdminScreen();
+            // Not authorized - redirect to splash instead of showing error screen
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) {
+                Navigator.of(context).pushReplacementNamed('/splash');
+              }
+            });
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
           },
         );
       },
@@ -277,7 +322,7 @@ class _NotAuthorizedAdminScreen extends StatelessWidget {
                       }
                     },
                     icon: const Icon(Icons.logout),
-                    label: const Text('Logout'),
+                    label: const Text('Keluar'),
                   ),
               ],
             ),

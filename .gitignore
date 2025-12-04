@@ -4,6 +4,9 @@ package-lock.json
 
 # Firebase service account key (do NOT commit)
 serviceAccountKey.json
+firebase-sa.json
+/keys/
+keys/
 .env
 # Miscellaneous
 *.class

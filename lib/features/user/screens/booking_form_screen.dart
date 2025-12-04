@@ -6,12 +6,14 @@ import 'package:intl/date_symbol_data_local.dart';
 
 class BookingFormScreen extends StatefulWidget {
   final String boothName;
+  final String? createdBy;
   final String? bookingId;
   final Map<String, dynamic>? existingData;
 
   const BookingFormScreen({
     super.key,
     required this.boothName,
+    this.createdBy,
     this.bookingId,
     this.existingData,
   });
@@ -42,6 +44,251 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     // Prefill name field from signed-in user's profile when creating a new booking
     if (widget.existingData == null) {
       _loadProfileName();
+    }
+  }
+
+  Future<Map<String, dynamic>> _validateBookingTime(
+    DateTime date,
+    TimeOfDay time,
+  ) async {
+    if (widget.createdBy == null || widget.createdBy!.isEmpty) {
+      return {'isValid': true, 'message': ''};
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('photobooth_admins')
+          .doc(widget.createdBy)
+          .get();
+
+      if (!doc.exists) {
+        return {'isValid': true, 'message': ''};
+      }
+
+      final data = doc.data();
+      if (data == null) {
+        return {'isValid': true, 'message': ''};
+      }
+
+      // Check manual studio status
+      final status = data['status'] ?? data['isOpen'] ?? data['open'];
+      bool isManuallyOpen = true;
+      if (status is bool) {
+        isManuallyOpen = status;
+      } else if (status is String) {
+        isManuallyOpen = status.toLowerCase() == 'open';
+      }
+
+      if (!isManuallyOpen) {
+        return {
+          'isValid': false,
+          'message': 'Studio sedang tutup. Silakan pilih waktu lain.',
+        };
+      }
+
+      // Check operating hours
+      final operatingHours = data['operatingHours'];
+      if (operatingHours == null) {
+        return {'isValid': true, 'message': ''};
+      }
+
+      final dayNames = [
+        'Minggu',
+        'Senin',
+        'Selasa',
+        'Rabu',
+        'Kamis',
+        'Jumat',
+        'Sabtu',
+      ];
+      final bookingDay = dayNames[date.weekday % 7];
+
+      final daySchedule = operatingHours[bookingDay];
+      if (daySchedule == null) {
+        return {
+          'isValid': false,
+          'message':
+              'Studio tutup pada hari $bookingDay. Silakan pilih hari lain.',
+        };
+      }
+
+      final isDayOpen =
+          daySchedule['isOpen'] == true || daySchedule['isOpen'] == 'true';
+      if (!isDayOpen) {
+        return {
+          'isValid': false,
+          'message':
+              'Studio tutup pada hari $bookingDay. Silakan pilih hari lain.',
+        };
+      }
+
+      // Check if booking time is within operating hours
+      final openTime = daySchedule['open']?.toString() ?? '09:00';
+      final closeTime = daySchedule['close']?.toString() ?? '17:00';
+
+      final openParts = openTime.split(':');
+      final closeParts = closeTime.split(':');
+
+      final bookingDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+
+      final openDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        int.parse(openParts[0]),
+        int.parse(openParts[1]),
+      );
+
+      var closeDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        int.parse(closeParts[0]),
+        int.parse(closeParts[1]),
+      );
+
+      // Check if 24 hours (00:00 - 00:00)
+      if (openTime == '00:00' && closeTime == '00:00') {
+        return {'isValid': true, 'message': ''};
+      }
+
+      // Handle case where close time is on the next day (e.g., 22:00 - 02:00)
+      if (closeDateTime.isBefore(openDateTime)) {
+        closeDateTime = closeDateTime.add(const Duration(days: 1));
+      }
+
+      if (bookingDateTime.isBefore(openDateTime) ||
+          bookingDateTime.isAfter(closeDateTime) ||
+          bookingDateTime.isAtSameMomentAs(closeDateTime)) {
+        return {
+          'isValid': false,
+          'message':
+              'Jam booking di luar jam operasional. Studio buka pukul $openTime - $closeTime pada hari $bookingDay.',
+        };
+      }
+
+      return {'isValid': true, 'message': ''};
+    } catch (e) {
+      return {'isValid': true, 'message': ''};
+    }
+  }
+
+  Future<Map<String, dynamic>> _checkConflictingBooking(
+    String boothName,
+    String date,
+    String time,
+  ) async {
+    try {
+      // Get booth duration (in minutes)
+      final boothDoc = await FirebaseFirestore.instance
+          .collection('booths')
+          .where('name', isEqualTo: boothName)
+          .limit(1)
+          .get();
+
+      int durationMinutes = 60; // default 1 hour
+      if (boothDoc.docs.isNotEmpty) {
+        final boothData = boothDoc.docs.first.data();
+        final duration = boothData['duration'];
+        if (duration != null) {
+          // duration format could be string or number (in minutes)
+          if (duration is int) {
+            durationMinutes = duration;
+          } else if (duration is String) {
+            final parsed = int.tryParse(duration);
+            if (parsed != null) {
+              durationMinutes = parsed;
+            }
+          }
+        }
+      }
+
+      // Parse booking time
+      final timeParts = time.split(':');
+      final bookingHour = int.parse(timeParts[0]);
+      final bookingMinute = int.parse(timeParts[1]);
+
+      // Calculate booking end time
+      final bookingStart = DateTime(
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day,
+        bookingHour,
+        bookingMinute,
+      );
+      final bookingEnd = bookingStart.add(Duration(minutes: durationMinutes));
+
+      // Check all approved bookings on the same booth and date
+      final existingBookings = await FirebaseFirestore.instance
+          .collection('bookings')
+          .where('boothName', isEqualTo: boothName)
+          .where('tanggal', isEqualTo: date)
+          .where('status', isEqualTo: 'approved')
+          .get();
+
+      for (final doc in existingBookings.docs) {
+        // If editing, skip if it's the same booking
+        if (widget.bookingId != null && doc.id == widget.bookingId) {
+          continue;
+        }
+
+        final docData = doc.data();
+        final existingTime = docData['jam']?.toString() ?? '';
+        if (existingTime.isEmpty) continue;
+
+        final existingTimeParts = existingTime.split(':');
+        final existingHour = int.parse(existingTimeParts[0]);
+        final existingMinute = int.parse(existingTimeParts[1]);
+
+        // Get existing booking duration
+        int existingDurationMinutes = 60; // default
+        if (docData['duration'] != null) {
+          if (docData['duration'] is int) {
+            existingDurationMinutes = docData['duration'] as int;
+          } else if (docData['duration'] is String) {
+            final parsed = int.tryParse(docData['duration'] as String);
+            if (parsed != null) {
+              existingDurationMinutes = parsed;
+            }
+          }
+        }
+
+        final existingStart = DateTime(
+          DateTime.now().year,
+          DateTime.now().month,
+          DateTime.now().day,
+          existingHour,
+          existingMinute,
+        );
+        final existingEnd = existingStart.add(
+          Duration(minutes: existingDurationMinutes),
+        );
+
+        // Check if time ranges overlap
+        final hasOverlap =
+            (bookingStart.isBefore(existingEnd) ||
+                bookingStart.isAtSameMomentAs(existingEnd)) &&
+            (bookingEnd.isAfter(existingStart) ||
+                bookingEnd.isAtSameMomentAs(existingStart));
+
+        if (hasOverlap) {
+          return {
+            'hasConflict': true,
+            'message':
+                'Maaf, jadwal ini sudah dipesan oleh pelanggan lain. Silakan pilih waktu yang berbeda.',
+          };
+        }
+      }
+
+      return {'hasConflict': false, 'message': ''};
+    } catch (e) {
+      return {'hasConflict': false, 'message': ''};
     }
   }
 
@@ -115,7 +362,23 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       lastDate: DateTime(2026),
       locale: const Locale('id', 'ID'),
     );
-    if (picked != null) setState(() => _selectedDate = picked);
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+      // Validate immediately if time is already selected
+      if (_selectedTime != null) {
+        final validation = await _validateBookingTime(picked, _selectedTime!);
+        if (validation['isValid'] == false) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(validation['message'] as String),
+              duration: const Duration(seconds: 4),
+              backgroundColor: Colors.orange.shade700,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _selectTime() async {
@@ -123,13 +386,46 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       context: context,
       initialTime: _selectedTime ?? TimeOfDay.now(),
     );
-    if (picked != null) setState(() => _selectedTime = picked);
+    if (picked != null) {
+      setState(() => _selectedTime = picked);
+      // Validate immediately if date is already selected
+      if (_selectedDate != null) {
+        final validation = await _validateBookingTime(_selectedDate!, picked);
+        if (validation['isValid'] == false) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(validation['message'] as String),
+              duration: const Duration(seconds: 4),
+              backgroundColor: Colors.orange.shade700,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _saveBooking() async {
     if (!_formKey.currentState!.validate() ||
         _selectedDate == null ||
         _selectedTime == null) {
+      return;
+    }
+
+    // Validate booking time against studio operating hours
+    final validation = await _validateBookingTime(
+      _selectedDate!,
+      _selectedTime!,
+    );
+    if (validation['isValid'] == false) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(validation['message'] as String),
+          duration: const Duration(seconds: 4),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
       return;
     }
 
@@ -142,6 +438,25 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     ).format(_selectedDate!);
     final formattedTime =
         '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
+
+    // Check for conflicting approved bookings
+    final conflictCheck = await _checkConflictingBooking(
+      widget.boothName,
+      formattedDate,
+      formattedTime,
+    );
+    if (conflictCheck['hasConflict'] == true) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(conflictCheck['message'] as String),
+          duration: const Duration(seconds: 4),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      return;
+    }
 
     // Try fetching user's profile to enrich the booking payload
     String? userName;

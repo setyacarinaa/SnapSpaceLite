@@ -24,7 +24,7 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
         'verified': true,
         'verified_at': FieldValue.serverTimestamp(),
       });
-      if (mounted) Fluttertoast.showToast(msg: 'Account accepted');
+      if (mounted) Fluttertoast.showToast(msg: 'Akun berhasil diterima');
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
@@ -39,9 +39,9 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
     }
     try {
       await usersRef.doc(widget.userId).delete();
-      if (mounted) Fluttertoast.showToast(msg: 'Account declined and removed');
+      if (mounted) Fluttertoast.showToast(msg: 'Akun ditolak dan dihapus');
     } catch (_) {
-      if (mounted) Fluttertoast.showToast(msg: 'Failed to remove account');
+      if (mounted) Fluttertoast.showToast(msg: 'Gagal menghapus akun');
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
@@ -53,12 +53,12 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Verification')),
+      appBar: AppBar(title: const Text('Verifikasi')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: usersRef.doc(widget.userId).snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(child: Text('Error loading'));
+            return const Center(child: Text('Gagal memuat data'));
           }
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -102,14 +102,14 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
                     children: [
                       ElevatedButton(
                         onPressed: () => _accept(data),
-                        child: const Text('Accept'),
+                        child: const Text('Terima'),
                       ),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.redAccent,
                         ),
                         onPressed: _decline,
-                        child: const Text('Decline'),
+                        child: const Text('Tolak'),
                       ),
                     ],
                   ),

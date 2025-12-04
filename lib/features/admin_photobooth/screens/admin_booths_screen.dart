@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../core/cloudinary_service.dart';
+import '../../../core/cloudinary_config.dart';
 
 /// Clean admin booths screen implementation.
 class AdminBoothsScreen extends StatefulWidget {
@@ -12,14 +16,26 @@ class AdminBoothsScreen extends StatefulWidget {
 }
 
 class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
-  final _query = FirebaseFirestore.instance
-      .collection('booths')
-      .orderBy('name');
+  Query<Map<String, dynamic>>? _query;
+
+  @override
+  void initState() {
+    super.initState();
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      _query = FirebaseFirestore.instance
+          .collection('booths')
+          .where('createdBy', isEqualTo: userId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_query == null) {
+      return const Scaffold(body: Center(child: Text('User tidak ditemukan')));
+    }
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _query.snapshots(),
+      stream: _query!.snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -39,23 +55,25 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
             child: Stack(
               children: [
                 docs.isEmpty
-                    ? Center(child: _emptyState())
+                    ? _emptyState()
                     : _listView(docs, bottomPad: listBottomPadding),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: fabBottom,
-                  child: Center(
-                    child: FloatingActionButton.extended(
-                      onPressed: _openCreate,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Tambah Booth'),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                if (docs.isNotEmpty)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: fabBottom,
+                    child: Center(
+                      child: FloatingActionButton.extended(
+                        onPressed: _openCreate,
+                        foregroundColor: Colors.white,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Tambah Booth'),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -64,150 +82,158 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
     );
   }
 
-  Widget _emptyState() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Belum ada data booth.',
-          style: TextStyle(fontSize: 16, color: Colors.black54),
-        ),
-        const SizedBox(height: 12),
-        ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(
+  Widget _emptyState() => Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Belum ada data booth.',
+            style: TextStyle(fontSize: 16, color: Colors.black54),
+          ),
+          const SizedBox(height: 24),
+          FloatingActionButton.extended(
+            onPressed: _openCreate,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add),
+            label: const Text('Tambah Booth'),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          onPressed: _openCreate,
-          icon: const Icon(Icons.add),
-          label: const Text('Tambah Booth Baru'),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: _seedSampleBooths,
-          icon: const Icon(Icons.auto_awesome),
-          label: const Text('Isi Contoh Data'),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 
   Widget _listView(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
     double bottomPad = 16.0,
-  }) => ListView.separated(
-    padding: EdgeInsets.fromLTRB(12, 0, 12, bottomPad),
-    separatorBuilder: (_, __) => const SizedBox(height: 10),
-    itemCount: docs.length,
-    itemBuilder: (context, i) {
-      final doc = docs[i];
-      final d = doc.data();
-      final id = doc.id;
-      final name = (d['name'] ?? 'Tanpa Nama').toString();
-      final price = d['price'] ?? 0;
-      final image = (d['imageUrl'] ?? d['image'] ?? d['path'] ?? '').toString();
-      final description = (d['description'] ?? '').toString();
+  }) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-      return Card(
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        elevation: 1,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(width: 72, height: 72, child: _thumb(image)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Rp ${price.toString()} / jam',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 6),
-                    if (description.isNotEmpty)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.description,
-                            size: 16,
-                            color: Colors.black54,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              description,
-                              style: const TextStyle(color: Colors.black54),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (val) async {
-                  if (val == 'edit') {
-                    _openEdit(id, d);
-                  } else if (val == 'delete') {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Konfirmasi Hapus'),
-                        content: const Text(
-                          'Hapus booth ini? Tindakan tidak dapat dibatalkan.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(false),
-                            child: const Text('Batal'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(true),
-                            child: const Text('Hapus'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) {
-                      await _delete(id, image);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(content: Text('Booth dihapus')),
-                      );
-                    }
-                  }
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'delete', child: Text('Hapus')),
-                ],
-              ),
-            ],
+    return ListView.separated(
+      padding: EdgeInsets.fromLTRB(12, 0, 12, bottomPad),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemCount: docs.length,
+      itemBuilder: (context, i) {
+        final doc = docs[i];
+        final d = doc.data();
+        final id = doc.id;
+        final name = (d['name'] ?? 'Tanpa Nama').toString();
+        final price = d['price'] ?? 0;
+        final image = (d['imageUrl'] ?? d['image'] ?? d['path'] ?? '')
+            .toString();
+        final description = (d['description'] ?? '').toString();
+        final createdBy = d['createdBy'] as String?;
+
+        // Validasi apakah booth ini milik user yang sedang login
+        final isOwner = currentUserId != null && createdBy == currentUserId;
+
+        return Card(
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        ),
-      );
-    },
-  );
+          elevation: 1,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(width: 72, height: 72, child: _thumb(image)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Rp ${price.toString()} / jam',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                      const SizedBox(height: 6),
+                      if (description.isNotEmpty)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.description,
+                              size: 16,
+                              color: Colors.black54,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                description,
+                                style: const TextStyle(color: Colors.black54),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                // Hanya tampilkan menu edit/delete jika user adalah owner booth
+                if (isOwner)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    onSelected: (val) async {
+                      if (val == 'edit') {
+                        _openEdit(id, d);
+                      } else if (val == 'delete') {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Konfirmasi Hapus'),
+                            content: const Text(
+                              'Hapus booth ini? Tindakan tidak dapat dibatalkan.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Batal'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Hapus'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true) {
+                          await _delete(id, image);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(content: Text('Booth dihapus')),
+                          );
+                        }
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Ubah')),
+                      PopupMenuItem(value: 'delete', child: Text('Hapus')),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _thumb(String urlOrPath) {
     // Return a rectangular thumbnail that falls back to the default booth asset.
@@ -289,6 +315,9 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
   }
 
   Future<void> _openCreate() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -301,8 +330,30 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
           ),
           child: _BoothForm(
-            onSubmit: (data) async =>
-                FirebaseFirestore.instance.collection('booths').add(data),
+            onSubmit: (data) async {
+              // Stamp admin's location info onto booth so customer filters align
+              data['createdBy'] = userId;
+              try {
+                final adminDoc = await FirebaseFirestore.instance
+                    .collection('photobooth_admins')
+                    .doc(userId)
+                    .get();
+                final admin = adminDoc.data() ?? <String, dynamic>{};
+                // Prefer explicit fields if admin profile has them
+                final location = (admin['location'] ?? '').toString().trim();
+                final province = (admin['province'] ?? admin['provinsi'] ?? '')
+                    .toString()
+                    .trim();
+                final city =
+                    (admin['city'] ?? admin['kota'] ?? admin['kabupaten'] ?? '')
+                        .toString()
+                        .trim();
+                if (location.isNotEmpty) data['location'] = location;
+                if (province.isNotEmpty) data['province'] = province;
+                if (city.isNotEmpty) data['city'] = city;
+              } catch (_) {}
+              await FirebaseFirestore.instance.collection('booths').add(data);
+            },
           ),
         ),
       ),
@@ -323,10 +374,43 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
           ),
           child: _BoothForm(
             initial: initial,
-            onSubmit: (data) async => FirebaseFirestore.instance
-                .collection('booths')
-                .doc(id)
-                .set(data, SetOptions(merge: true)),
+            onSubmit: (data) async {
+              // Keep admin location in sync when editing if not explicitly set
+              try {
+                final userId = FirebaseAuth.instance.currentUser?.uid;
+                if (userId != null) {
+                  final adminDoc = await FirebaseFirestore.instance
+                      .collection('photobooth_admins')
+                      .doc(userId)
+                      .get();
+                  final admin = adminDoc.data() ?? <String, dynamic>{};
+                  data.putIfAbsent(
+                    'location',
+                    () => (admin['location'] ?? '').toString().trim(),
+                  );
+                  data.putIfAbsent(
+                    'province',
+                    () => (admin['province'] ?? admin['provinsi'] ?? '')
+                        .toString()
+                        .trim(),
+                  );
+                  data.putIfAbsent(
+                    'city',
+                    () =>
+                        (admin['city'] ??
+                                admin['kota'] ??
+                                admin['kabupaten'] ??
+                                '')
+                            .toString()
+                            .trim(),
+                  );
+                }
+              } catch (_) {}
+              await FirebaseFirestore.instance
+                  .collection('booths')
+                  .doc(id)
+                  .set(data, SetOptions(merge: true));
+            },
           ),
         ),
       ),
@@ -343,52 +427,6 @@ class _AdminBoothsScreenState extends State<AdminBoothsScreen> {
         await ref.delete();
       } catch (_) {}
     }
-  }
-
-  Future<void> _seedSampleBooths() async {
-    final batch = FirebaseFirestore.instance.batch();
-    final booths = FirebaseFirestore.instance.collection('booths');
-    final samples = [
-      {
-        'name': 'Classic Photo Booth',
-        'price': 50000,
-        'duration': '1 jam',
-        'capacity': '3-4 orang',
-        'description':
-            'Booth klasik dengan background polos dan properti lucu.',
-        'imageUrl': '',
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      },
-      {
-        'name': 'Neon Selfie Booth',
-        'price': 75000,
-        'duration': '1 jam',
-        'capacity': '2-3 orang',
-        'description': 'Tema neon modern, cocok untuk konten media sosial.',
-        'imageUrl': '',
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      },
-      {
-        'name': 'Vintage Corner',
-        'price': 65000,
-        'duration': '1 jam',
-        'capacity': '2 orang',
-        'description': 'Gaya vintage dengan properti retro.',
-        'imageUrl': '',
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      },
-    ];
-    for (final s in samples) {
-      batch.set(booths.doc(), s);
-    }
-    await batch.commit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('3 contoh booth berhasil dibuat.')),
-    );
   }
 }
 
@@ -532,30 +570,49 @@ class _BoothFormState extends State<_BoothForm> {
             ),
           ),
           const SizedBox(height: 8),
+          // Preview gambar jika sudah dipilih
+          if (imagePath.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              height: 120,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: imagePath.startsWith('http')
+                    ? Image.network(imagePath, fit: BoxFit.cover)
+                    : Image.file(File(imagePath), fit: BoxFit.cover),
+              ),
+            ),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  onPressed: () async {
-                    final picker = ImagePicker();
-                    final file = await picker.pickImage(
-                      source: ImageSource.gallery,
-                    );
-                    if (file == null) return;
-                    setState(() => imagePath = file.path);
-                  },
-                  child: const Text('Pilih Foto'),
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final picker = ImagePicker();
+                          final file = await picker.pickImage(
+                            source: ImageSource.gallery,
+                          );
+                          if (file == null) return;
+                          setState(() => imagePath = file.path);
+                        },
+                  icon: const Icon(Icons.photo_library),
+                  label: Text(imagePath.isEmpty ? 'Pilih Foto' : 'Ganti Foto'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
@@ -566,31 +623,89 @@ class _BoothFormState extends State<_BoothForm> {
                   onPressed: saving
                       ? null
                       : () async {
-                          final payload = {
-                            'name': name.text.trim(),
-                            'price': int.tryParse(price.text) ?? 0,
-                            'duration': duration.text.trim(),
-                            'capacity': capacity.text.trim(),
-                            'description': description.text.trim(),
-                            'image': imagePath,
-                            'updated_at': FieldValue.serverTimestamp(),
-                          };
-                          if (widget.initial == null) {
-                            payload['created_at'] =
-                                FieldValue.serverTimestamp();
-                          }
                           setState(() => saving = true);
                           final nav = Navigator.of(context);
+                          final messenger = ScaffoldMessenger.of(context);
+
                           try {
+                            String imageUrl = imagePath;
+
+                            // Upload ke Cloudinary jika gambar baru dipilih (path lokal)
+                            if (imagePath.isNotEmpty &&
+                                !imagePath.startsWith('http')) {
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Mengunggah foto...'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+
+                              final uploadedUrl =
+                                  await CloudinaryService.uploadImage(
+                                    imagePath,
+                                    folder: CloudinaryConfig.boothImagesFolder,
+                                  );
+
+                              if (uploadedUrl == null) {
+                                throw Exception(
+                                  'Gagal mengunggah foto ke Cloudinary',
+                                );
+                              }
+
+                              imageUrl = uploadedUrl;
+                            }
+
+                            final payload = {
+                              'name': name.text.trim(),
+                              'price': int.tryParse(price.text) ?? 0,
+                              'duration': duration.text.trim(),
+                              'capacity': capacity.text.trim(),
+                              'description': description.text.trim(),
+                              'imageUrl': imageUrl,
+                              'updated_at': FieldValue.serverTimestamp(),
+                            };
+
+                            if (widget.initial == null) {
+                              payload['created_at'] =
+                                  FieldValue.serverTimestamp();
+                            }
+
                             await widget.onSubmit(payload);
-                            if (mounted) nav.pop();
+
+                            if (mounted) {
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Booth berhasil disimpan'),
+                                ),
+                              );
+                              nav.pop();
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal: ${e.toString()}'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
                           } finally {
                             if (mounted) setState(() => saving = false);
                           }
                         },
-                  child: const Text(
-                    'Simpan',
-                    style: TextStyle(color: Colors.white),
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(
+                    saving ? 'Menyimpan...' : 'Simpan',
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ),
               ),

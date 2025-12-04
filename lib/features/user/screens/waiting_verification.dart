@@ -92,7 +92,7 @@ class _WaitingForVerificationScreenState
               ),
               const SizedBox(height: 24),
               const Text(
-                'Waiting For Verification',
+                'Menunggu Verifikasi',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 20,

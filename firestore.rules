@@ -5,9 +5,18 @@ service cloud.firestore {
     // Booths: public read, admin (system_admin or photobooth_admin) can create/update/delete
     match /booths/{boothId} {
       allow read: if true;
-      allow create: if request.auth != null && (request.auth.token.system_admin == true || request.auth.token.photobooth_admin == true) &&
-        request.resource.data.name is string && request.resource.data.name.size() > 0;
-      allow update, delete: if request.auth != null && (request.auth.token.system_admin == true || request.auth.token.photobooth_admin == true);
+      allow create: if request.auth != null && 
+        (request.auth.token.system_admin == true || request.auth.token.photobooth_admin == true) &&
+        request.resource.data.name is string && 
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.createdBy == request.auth.uid;
+      
+      // System admin can update/delete any booth
+      // Photobooth admin can only update/delete their own booths
+      allow update, delete: if request.auth != null && (
+        request.auth.token.system_admin == true || 
+        (request.auth.token.photobooth_admin == true && resource.data.createdBy == request.auth.uid)
+      );
     }
 
     // Bookings: users can create bookings for themselves; owners, booth admins, and system admins can read/manage
@@ -36,45 +45,6 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == userId;
       allow update: if request.auth != null && request.auth.uid == userId;
       allow delete: if request.auth != null && request.auth.token.system_admin == true;
-    }
-
-    // Default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'adminsnapspace29@gmail.com';
-    }
-
-    // Booths: public read, admin-only write
-    match /booths/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Bookings: signed-in read, users can create their own, admin manages updates/deletes
-    match /bookings/{docId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin();
-    }
-
-    // Users: signed-in read; user can manage own doc; admin can manage all
-    match /users/{uid} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && uid == request.auth.uid;
-      allow update: if isAdmin() || (isSignedIn() && uid == request.auth.uid);
-      allow delete: if isAdmin() || (isSignedIn() && uid == request.auth.uid);
     }
 
     // Default deny

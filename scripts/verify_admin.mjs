@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Verify admin helper: prints Auth user info, custom claims, and Firestore role for an email.
 // Usage:
-//   $env:GOOGLE_APPLICATION_CREDENTIALS='D:/keys/firebase-sa.json'; node .\scripts\verify_admin.mjs admin@example.com
+//   $env:GOOGLE_APPLICATION_CREDENTIALS='./keys/firebase-sa.json'; node .\scripts\verify_admin.mjs admin@example.com
 // or
-//   $env:GOOGLE_APPLICATION_CREDENTIALS='D:/keys/firebase-sa.json'; $env:ADMIN_EMAIL='admin@example.com'; node .\scripts\verify_admin.mjs
+//   $env:GOOGLE_APPLICATION_CREDENTIALS='./keys/firebase-sa.json'; $env:ADMIN_EMAIL='admin@example.com'; node .\scripts\verify_admin.mjs
 
 import fs from 'fs'
 import path from 'path'

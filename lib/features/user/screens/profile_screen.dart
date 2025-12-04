@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:snapspace/features/user/screens/opening_screen.dart';
+import '../../../core/cloudinary_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -36,7 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserData();
     if (user != null) {
       _userSub = firestore
-          .collection('users')
+          .collection('customers')
           .doc(user!.uid)
           .snapshots()
           .listen((docSnap) {
@@ -66,7 +66,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadUserData() async {
     if (user == null) return;
 
-    final doc = await firestore.collection('users').doc(user!.uid).get();
+    final doc = await firestore.collection('customers').doc(user!.uid).get();
     final data = doc.data();
     if (!mounted) return;
     if (data != null) {
@@ -143,50 +143,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<String?> _uploadImageFromPicker(XFile picked) async {
     try {
-      final bytes = await picked.readAsBytes();
-      // Tentukan ekstensi & content-type sederhana
-      final path = picked.path;
-      final dot = path.lastIndexOf('.');
-      final ext = (dot != -1 ? path.substring(dot + 1) : 'jpg').toLowerCase();
-      String contentType = 'image/jpeg';
-      if (ext == 'png') contentType = 'image/png';
-      if (ext == 'webp') contentType = 'image/webp';
+      // Upload ke Cloudinary dengan folder user avatars
+      final url = await CloudinaryService.uploadImage(
+        picked.path,
+        folder: 'snapspace/avatars',
+      );
 
-      final fileName = '${user!.uid}.${ext.isEmpty ? 'jpg' : ext}';
-      // Pakai instance default agar konsisten dengan konfigurasi Firebase di app
-      final storage = FirebaseStorage.instance;
-      final ref = storage.ref().child('profile_images').child(fileName);
-
-      final task = await ref
-          .putData(bytes, SettableMetadata(contentType: contentType))
-          .timeout(const Duration(seconds: 45));
-
-      // Ambil URL dari snapshot.ref dan retry singkat jika perlu (eventual consistency)
-      int attempts = 0;
-      while (true) {
-        try {
-          final url = await task.ref.getDownloadURL().timeout(
-            const Duration(seconds: 8),
-          );
-          return url;
-        } on TimeoutException {
-          if (attempts < 2) {
-            attempts++;
-            continue;
-          }
-          rethrow;
-        } on FirebaseException catch (e) {
-          if (e.code == 'object-not-found' && attempts < 2) {
-            attempts++;
-            await Future.delayed(const Duration(milliseconds: 250));
-            continue;
-          }
-          rethrow;
-        }
-      }
+      return url;
     } catch (e) {
-      // Tampilkan alasan error supaya mudah didiagnosa (rules/bucket/konfigurasi)
-      // Use debugPrint instead of print to satisfy analyzer and be production-friendly
       // ignore: avoid_print
       debugPrint("Upload failed: $e");
       if (mounted) {
@@ -205,7 +169,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
       // Ambil data saat ini untuk fallback agar tidak menimpa dengan string kosong
       final currentSnap = await firestore
-          .collection('users')
+          .collection('customers')
           .doc(user!.uid)
           .get()
           .timeout(const Duration(seconds: 12));
@@ -249,7 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       await firestore
-          .collection('users')
+          .collection('customers')
           .doc(user!.uid)
           .set(updateData, SetOptions(merge: true))
           .timeout(const Duration(seconds: 12));
@@ -270,7 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Profile updated successfully")),
+          const SnackBar(content: Text("Profil berhasil diperbarui")),
         );
       }
     } on TimeoutException catch (_) {
@@ -309,19 +273,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _removePhoto() async {
     if (user == null) return;
     try {
-      if (photoUrl != null && photoUrl!.isNotEmpty) {
-        try {
-          final storage = FirebaseStorage.instanceFor(
-            bucket: 'snapspace-lite.appspot.com',
-          );
-          final ref = storage.refFromURL(photoUrl!);
-          await ref.delete();
-        } catch (_) {
-          // abaikan bila file tidak ada atau tidak bisa dihapus
-        }
-      }
+      // Cloudinary tidak mendukung delete di free tier, jadi hanya hapus referensi
+      // Photo lama akan tetap ada di Cloudinary
 
-      await firestore.collection('users').doc(user!.uid).set({
+      await firestore.collection('customers').doc(user!.uid).set({
         'photoUrl': '',
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -362,7 +317,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset Password'),
+        title: const Text('Reset Kata Sandi'),
         content: Text('Kirim tautan reset password ke $targetEmail?'),
         actions: [
           TextButton(
@@ -371,7 +326,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Kirim'),
+            child: const Text('Kirim', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -410,7 +365,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF4981CF),
         title: const Text(
-          'Profile',
+          'Profil',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -458,12 +413,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  "Personal Information",
+                  "Informasi Pribadi",
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
               const SizedBox(height: 10),
-              _buildTextField(Icons.person, nameController, 'Name'),
+              _buildTextField(Icons.person, nameController, 'Nama'),
               const SizedBox(height: 12),
               _buildTextField(
                 Icons.email,
@@ -479,7 +434,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _isSaving ? null : _resetPassword,
                         icon: const Icon(Icons.lock_reset),
-                        label: const Text('Reset Password'),
+                        label: const Text('Reset Kata Sandi'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -522,7 +477,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       )
                     : Text(
-                        isEditing ? 'Save' : 'Edit',
+                        isEditing ? 'Simpan' : 'Edit',
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.white,
@@ -535,7 +490,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onPressed: _logout,
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(
-                  "Logout",
+                  "Keluar",
                   style: TextStyle(
                     color: Colors.red,
                     fontWeight: FontWeight.bold,

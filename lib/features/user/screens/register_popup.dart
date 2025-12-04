@@ -27,6 +27,33 @@ class _RegisterPopupState extends State<RegisterPopup> {
   bool _nameMatchesKtp = false;
   FocusNode? _driveFocusNode;
 
+  // Jam operasional per hari (format 24 jam)
+  final Map<String, Map<String, String>> _operatingHours = {
+    'Senin': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Selasa': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Rabu': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Kamis': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Jumat': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Sabtu': {'open': '09:00', 'close': '17:00', 'isOpen': 'true'},
+    'Minggu': {'open': '09:00', 'close': '17:00', 'isOpen': 'false'},
+  };
+
+  Future<void> _pickTime(String day, String type) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.parse(_operatingHours[day]![type]!.split(':')[0]),
+        minute: int.parse(_operatingHours[day]![type]!.split(':')[1]),
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        _operatingHours[day]![type] =
+            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
   Future<void> _register() async {
     if (_passwordController.text != _confirmController.text) {
       Fluttertoast.showToast(msg: "Password tidak cocok!");
@@ -93,6 +120,8 @@ class _RegisterPopupState extends State<RegisterPopup> {
         userDoc['boothName'] = _boothNameController.text.trim();
         userDoc['location'] = _locationController.text.trim();
         userDoc['driveLink'] = _driveLinkController.text.trim();
+        userDoc['operatingHours'] = _operatingHours;
+        userDoc['status'] = 'open'; // default studio status
       }
 
       final collectionName = roleValue == 'photobooth_admin'
@@ -365,7 +394,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
               child: Column(
                 children: [
                   const Text(
-                    "Register",
+                    "Daftar",
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 30),
@@ -380,7 +409,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
                         items: const [
                           DropdownMenuItem(
                             value: 'user',
-                            child: Text('User / Customer'),
+                            child: Text('Pengguna / Pelanggan'),
                           ),
                           DropdownMenuItem(
                             value: 'photobooth_admin',
@@ -420,7 +449,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
                     TextField(
                       controller: _boothNameController,
                       decoration: InputDecoration(
-                        labelText: 'Nama Photobooth',
+                        labelText: 'Nama Studio',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -436,6 +465,158 @@ class _RegisterPopupState extends State<RegisterPopup> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         prefixIcon: const Icon(Icons.location_on_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Jam Operasional
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                size: 20,
+                                color: Colors.blueAccent,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Jam Operasional',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          ..._operatingHours.keys.map((day) {
+                            final hours = _operatingHours[day]!;
+                            final isOpen = hours['isOpen'] == 'true';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 70,
+                                    child: Text(
+                                      day,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Checkbox(
+                                    value: isOpen,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _operatingHours[day]!['isOpen'] = val
+                                            .toString();
+                                      });
+                                    },
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  Expanded(
+                                    child: isOpen
+                                        ? Row(
+                                            children: [
+                                              Expanded(
+                                                child: InkWell(
+                                                  onTap: () =>
+                                                      _pickTime(day, 'open'),
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 12,
+                                                          vertical: 10,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      border: Border.all(
+                                                        color: Colors
+                                                            .grey
+                                                            .shade300,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                    child: Text(
+                                                      hours['open']!,
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                      ),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                ),
+                                                child: Text(
+                                                  '-',
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ),
+                                              Expanded(
+                                                child: InkWell(
+                                                  onTap: () =>
+                                                      _pickTime(day, 'close'),
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 12,
+                                                          vertical: 10,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      border: Border.all(
+                                                        color: Colors
+                                                            .grey
+                                                            .shade300,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                    child: Text(
+                                                      hours['close']!,
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                      ),
+                                                      textAlign:
+                                                          TextAlign.center,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        : const Text(
+                                            'Tutup',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -528,7 +709,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
                             ),
                             onPressed: _onRegisterPressed,
                             child: const Text(
-                              "Register",
+                              "Daftar",
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
