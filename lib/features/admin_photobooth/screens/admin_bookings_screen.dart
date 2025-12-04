@@ -1,14 +1,10 @@
-import 'dart:convert';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:http/http.dart' as http;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/admin_config.dart';
 import '../../../core/cloudinary_service.dart';
 
 class AdminBookingsScreen extends StatelessWidget {
@@ -822,14 +818,12 @@ class _BookingDetailDialogState extends State<_BookingDetailDialog> {
   bool _isUploading = false;
   String? _userPhotoUrl;
   bool _isLoadingUserPhoto = true;
-  String _currentStatus = ''; // Track current status
 
   @override
   void initState() {
     super.initState();
     _loadPhotos();
     _loadUserPhoto();
-    _currentStatus = widget.info['status'] ?? 'pending';
   }
 
   Future<void> _loadUserPhoto() async {
@@ -927,7 +921,6 @@ class _BookingDetailDialogState extends State<_BookingDetailDialog> {
 
         setState(() {
           _photoUrls = newPhotos;
-          _currentStatus = 'selesai';
           _isUploading = false;
         });
 
