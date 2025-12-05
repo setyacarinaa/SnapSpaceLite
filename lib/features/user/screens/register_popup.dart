@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:latlong2/latlong.dart';
 import 'login_popup.dart';
 import 'waiting_verification.dart';
+import '../../shared/screens/map_picker_screen.dart';
 
 class RegisterPopup extends StatefulWidget {
   const RegisterPopup({super.key});
@@ -26,6 +28,7 @@ class _RegisterPopupState extends State<RegisterPopup> {
   bool _obscureConfirm = true;
   bool _nameMatchesKtp = false;
   FocusNode? _driveFocusNode;
+  LatLng? _selectedLocationLatLng;
 
   // Jam operasional per hari (format 24 jam)
   final Map<String, Map<String, String>> _operatingHours = {
@@ -119,6 +122,8 @@ class _RegisterPopupState extends State<RegisterPopup> {
         userDoc['verified'] = false;
         userDoc['boothName'] = _boothNameController.text.trim();
         userDoc['location'] = _locationController.text.trim();
+        userDoc['latitude'] = _selectedLocationLatLng?.latitude ?? -6.2088;
+        userDoc['longitude'] = _selectedLocationLatLng?.longitude ?? 106.8456;
         userDoc['driveLink'] = _driveLinkController.text.trim();
         userDoc['operatingHours'] = _operatingHours;
         userDoc['status'] = 'open'; // default studio status
@@ -457,16 +462,59 @@ class _RegisterPopupState extends State<RegisterPopup> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _locationController,
-                      decoration: InputDecoration(
-                        labelText: 'Lokasi',
-                        border: OutlineInputBorder(
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        final result = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MapPickerScreen(
+                              initialLocation: _selectedLocationLatLng,
+                              initialAddress: _locationController.text.isEmpty
+                                  ? null
+                                  : _locationController.text,
+                            ),
+                          ),
+                        );
+                        if (result != null) {
+                          setState(() {
+                            _selectedLocationLatLng = result['location'];
+                            _locationController.text = result['address'];
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.location_on),
+                      label: Text(
+                        _locationController.text.isEmpty
+                            ? 'Pilih Lokasi di Peta'
+                            : 'Ubah Lokasi',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4981CF),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        prefixIcon: const Icon(Icons.location_on_outlined),
                       ),
                     ),
+                    if (_locationController.text.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Text(
+                          _locationController.text,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
 
                     // Jam Operasional

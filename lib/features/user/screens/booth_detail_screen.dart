@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:snapspace/features/user/screens/image_preview_screen.dart';
 import 'package:snapspace/features/user/screens/booking_form_screen.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
 
 class BoothDetailScreen extends StatefulWidget {
   final DocumentReference boothRef;
@@ -389,6 +391,30 @@ class _BoothDetailScreenState extends State<BoothDetailScreen> {
                               ),
                               const SizedBox(height: 20),
 
+                              // Tombol Lihat Lokasi
+                              SizedBox(
+                                width: double.infinity,
+                                height: 48,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _showLocationMap(
+                                    data['location'] as String?,
+                                    createdBy,
+                                  ),
+                                  icon: const Icon(Icons.location_on),
+                                  label: const Text('Lihat Lokasi di Peta'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF4981CF),
+                                    side: const BorderSide(
+                                      color: Color(0xFF4981CF),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+
                               // Tombol Booking
                               SizedBox(
                                 width: double.infinity,
@@ -475,6 +501,127 @@ class _BoothDetailScreenState extends State<BoothDetailScreen> {
         ),
       ],
     );
+  }
+
+  void _showLocationMap(String? location, String? createdBy) async {
+    if (createdBy == null) return;
+
+    try {
+      final adminDoc = await FirebaseFirestore.instance
+          .collection('photobooth_admins')
+          .doc(createdBy)
+          .get();
+
+      if (!adminDoc.exists) return;
+
+      final adminData = adminDoc.data();
+      final latitude = adminData?['latitude'] as double? ?? -6.2088;
+      final longitude = adminData?['longitude'] as double? ?? 106.8456;
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => SizedBox(
+          height: MediaQuery.of(context).size.height * 0.8,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Lokasi Studio',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: LatLng(latitude, longitude),
+                    initialZoom: 15,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.snapspace',
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: LatLng(latitude, longitude),
+                          width: 60,
+                          height: 60,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              const Icon(
+                                Icons.location_on,
+                                color: Color(0xFF4981CF),
+                                size: 50,
+                              ),
+                              Positioned(
+                                top: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4981CF),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                  child: const Text(
+                                    'Studio',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Lokasi: ${location ?? "Tidak tersedia"}',
+                  style: const TextStyle(fontSize: 13, color: Colors.black87),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Gagal memuat lokasi: $e')));
+    }
   }
 }
 

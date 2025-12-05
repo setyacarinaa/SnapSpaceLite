@@ -75,6 +75,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Helper method untuk normalisasi nama kota saat filtering
+  // Menghapus prefix "Kota" atau "Kabupaten" untuk perbandingan yang konsisten
+  String _normalizeCity(String cityName) {
+    return cityName
+        .toLowerCase()
+        .trim()
+        .replaceFirst(RegExp(r'^(kota|kabupaten)\s+', caseSensitive: false), '')
+        .trim();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -726,18 +736,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 rawCity = parts[0];
                               }
 
-                              // Normalisasi: lowercase, trim, hapus awalan kota/kabupaten
-                              final city = rawCity
-                                  .toLowerCase()
-                                  .trim()
-                                  .replaceFirst(
-                                    RegExp(
-                                      '^(kota|kabupaten)\\s+',
-                                      caseSensitive: false,
-                                    ),
-                                    '',
-                                  )
-                                  .trim();
+                              // PERBAIKAN: Jangan hapus prefix untuk konsistensi dengan dropdown filter
+                              // Gunakan rawCity langsung untuk matching
+                              final city = rawCity.toLowerCase().trim();
 
                               final matchesQuery = query.isEmpty
                                   ? true
@@ -748,11 +749,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ));
 
                               // Pencocokan filter dropdown: case-insensitive contains matching untuk kota
+                              // Normalisasi untuk matching: hapus prefix dari KEDUA sisi untuk perbandingan
                               final matchesCity =
                                   _selectedCity == null ||
                                       _selectedCity!.isEmpty
                                   ? true
-                                  : city.contains(_selectedCity!.toLowerCase());
+                                  : _normalizeCity(city) ==
+                                        _normalizeCity(
+                                          _selectedCity!.toLowerCase(),
+                                        );
 
                               return matchesQuery && matchesCity;
                             }).toList();
