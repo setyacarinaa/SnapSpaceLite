@@ -21,10 +21,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String? userName;
+  String? _photoUrl;
   Query<Map<String, dynamic>>? boothsQuery;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userSub;
   bool _useCollectionGroup = false;
   Timer? _statusUpdateTimer;
+  bool _triedUsersFallback = false;
 
   final TextEditingController _searchController = TextEditingController();
   String? _selectedCity;
@@ -103,20 +105,34 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // Tampilkan terlebih dahulu data dasar dari FirebaseAuth agar UI tidak kosong
+      setState(() {
+        userName =
+            user.displayName ?? (user.email?.split('@').first ?? 'Pengguna');
+        _photoUrl = user.photoURL;
+      });
+
       _userSub = FirebaseFirestore.instance
-          .collection('users')
+          .collection('customers')
           .doc(user.uid)
           .snapshots()
           .listen((doc) {
             if (!mounted) {
               return;
             }
-            setState(() {
-              userName =
-                  (doc.data()?['name'] as String?) ??
-                  user.displayName ??
-                  'Pengguna';
-            });
+            final data = doc.data();
+            if (data != null) {
+              setState(() {
+                userName =
+                    (data['name'] as String?) ?? user.displayName ?? 'Pengguna';
+                _photoUrl =
+                    (data['photoUrl'] as String?) ?? user.photoURL ?? '';
+              });
+            } else if (!_triedUsersFallback) {
+              // Jika dokumen customers belum ada, coba ambil dari koleksi lama "users"
+              _triedUsersFallback = true;
+              _loadUserFallback(user);
+            }
           });
     }
 
@@ -138,6 +154,27 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         boothsQuery = FirebaseFirestore.instance.collectionGroup('booths');
         _useCollectionGroup = true;
+      });
+    }
+  }
+
+  Future<void> _loadUserFallback(User user) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (!mounted) return;
+      final data = snap.data();
+      setState(() {
+        userName = (data?['name'] as String?) ?? user.displayName ?? 'Pengguna';
+        _photoUrl = (data?['photoUrl'] as String?) ?? user.photoURL ?? '';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        userName = user.displayName ?? 'Pengguna';
+        _photoUrl = user.photoURL ?? '';
       });
     }
   }
@@ -468,12 +505,17 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.only(right: 12.0),
             child: CircleAvatar(
               backgroundColor: Colors.white24,
-              child: Text(
-                (userName != null && userName!.isNotEmpty)
-                    ? userName!.substring(0, 1).toUpperCase()
-                    : 'U',
-                style: const TextStyle(color: Colors.white),
-              ),
+              backgroundImage: (_photoUrl != null && _photoUrl!.isNotEmpty)
+                  ? NetworkImage(_photoUrl!)
+                  : null,
+              child: (_photoUrl == null || _photoUrl!.isEmpty)
+                  ? Text(
+                      (userName != null && userName!.isNotEmpty)
+                          ? userName!.substring(0, 1).toUpperCase()
+                          : 'U',
+                      style: const TextStyle(color: Colors.white),
+                    )
+                  : null,
             ),
           ),
         ],
@@ -549,7 +591,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(width: 10),
                       Container(
-                        width: 145,
+                        width: 155,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
@@ -559,32 +601,71 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: DropdownButtonFormField<String>(
                           isExpanded: true,
+                          alignment: Alignment.centerLeft,
                           initialValue: _selectedSort,
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
+                              horizontal: 12,
+                              vertical: 10,
                             ),
                             border: InputBorder.none,
-                            prefixIcon: Icon(
-                              Icons.sort_rounded,
-                              size: 18,
-                              color: Color(0xFF4E86D6),
-                            ),
                           ),
                           icon: const Icon(
                             Icons.arrow_drop_down_rounded,
                             color: Color(0xFF6B7AA7),
                             size: 20,
                           ),
+                          selectedItemBuilder: (context) => _sortOptions
+                              .map(
+                                (s) => Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    const Icon(
+                                      Icons.sort_rounded,
+                                      size: 16,
+                                      color: Color(0xFF4E86D6),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        s,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF2F3B52),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                              .toList(),
                           items: _sortOptions
                               .map(
                                 (s) => DropdownMenuItem<String>(
                                   value: s,
-                                  child: Text(
-                                    s,
-                                    style: const TextStyle(fontSize: 13),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.sort_rounded,
+                                        size: 16,
+                                        color: Color(0xFF4E86D6),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          s,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF2F3B52),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               )

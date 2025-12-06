@@ -20,6 +20,10 @@ android {
         jvmTarget = "21"
     }
 
+    tasks.withType<JavaCompile> {
+        options.compilerArgs.add("-Xlint:-deprecation")
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.snapspace"
@@ -45,7 +49,7 @@ flutter {
 }
 
 dependencies {
-  implementation(platform("com.google.firebase:firebase-bom:34.3.0"))
+  implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
   implementation("com.google.firebase:firebase-analytics")
 }
 
