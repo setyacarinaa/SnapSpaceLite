@@ -300,7 +300,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       final user = FirebaseAuth.instance.currentUser;
       String? name = user?.displayName;
 
-      if ((name == null || name.isEmpty) && user?.uid != null) {
+      if ((name?.isEmpty ?? true) && user?.uid != null) {
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user!.uid)

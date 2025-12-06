@@ -539,8 +539,16 @@ class _DetailBookingScreenState extends State<DetailBookingScreen> {
         directory = await getApplicationDocumentsDirectory();
       }
 
+      // Jika directory masih null, tampilkan error
       if (directory == null) {
-        throw Exception('Tidak dapat mengakses folder Downloads');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gagal mengakses folder penyimpanan'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
       }
 
       int successCount = 0;
